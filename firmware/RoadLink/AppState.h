@@ -22,9 +22,17 @@ struct AppSettings {
   bool serialCanStreaming = false;
   bool serialUiMirror = true;
   bool webUiEnabled = true;
+  bool simEnabled = true;
+  bool simAutoSend = false;
+  bool simSendGps = true;
+  bool simSendObd = true;
 
   uint16_t uiRefreshMs = AppConfig::UI_REFRESH_DEFAULT_MS;
   uint16_t obdPollMs = AppConfig::OBD_POLL_DEFAULT_MS;
+  uint32_t simSendIntervalMs = AppConfig::SIM_SEND_INTERVAL_DEFAULT_MS;
+  uint8_t simServerIp[4] = {0, 0, 0, 0};
+  uint16_t simServerPort = 0;
+  uint32_t simAccessKey = 0;
 };
 
 inline const char* canBitrateLabel(CanBitrate value) {

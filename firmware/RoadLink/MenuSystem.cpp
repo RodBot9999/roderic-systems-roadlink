@@ -6,14 +6,18 @@ MenuSystem::MenuSystem(
     CanService& can,
     ObdService& obd,
     GpsService& gps,
+    Sim800Service& sim,
     AppSettings& settings,
+    SettingsStore& settingsStore,
     StartupDiagnostics& diagnostics,
     WebUiService& webUi)
   : ui_(ui),
     can_(can),
     obd_(obd),
     gps_(gps),
+    sim_(sim),
     settings_(settings),
+    settingsStore_(settingsStore),
     diagnostics_(diagnostics),
     webUi_(webUi) {
   navigation_[0].screen = ScreenId::MainMenu;
@@ -21,15 +25,22 @@ MenuSystem::MenuSystem(
 
 void MenuSystem::begin() {
   navigationDepth_ = 1;
-  navigation_[0].selection = 0;
   navigation_[0].screen = diagnostics_.hasErrors() && !diagnostics_.overridden()
       ? ScreenId::StartupErrors
       : ScreenId::MainMenu;
+  navigation_[0].selection = navigation_[0].screen == ScreenId::StartupErrors
+      ? diagnostics_.count()
+      : 0;
   render(true);
 }
 
 void MenuSystem::handleInput(InputEvent event) {
   if (event == InputEvent::None) return;
+
+  if (handleSimEditorInput(event)) {
+    render(true);
+    return;
+  }
 
   if (event == InputEvent::Back) {
     goBack();
@@ -129,7 +140,7 @@ uint8_t MenuSystem::itemCount(ScreenId screen) const {
   switch (screen) {
     case ScreenId::StartupErrors:      return diagnostics_.count() + 1;
     case ScreenId::StartupErrorDetail: return 1;
-    case ScreenId::MainMenu:           return 3;
+    case ScreenId::MainMenu:           return 4;
     case ScreenId::CanMenu:            return 7;
     case ScreenId::CanMonitorMenu:     return 3;
     case ScreenId::CanStatus:          return 2;
@@ -154,6 +165,12 @@ uint8_t MenuSystem::itemCount(ScreenId screen) const {
     case ScreenId::GpsNmeaStatistics:  return 1;
     case ScreenId::GpsRawNmea:         return 2;
     case ScreenId::SettingsMenu:       return 9;
+    case ScreenId::SimConfiguration:   return 11;
+    case ScreenId::SimStatus:          return 1;
+    case ScreenId::SimDataSelection:   return 3;
+    case ScreenId::SimIpEditor:
+    case ScreenId::SimPortEditor:
+    case ScreenId::SimKeyEditor:       return 0;
     case ScreenId::About:              return 1;
   }
   return 0;
@@ -163,13 +180,18 @@ String MenuSystem::itemLabel(ScreenId screen, uint8_t index) const {
   if (screen == ScreenId::StartupErrors) {
     if (index < diagnostics_.count()) {
       const ModuleError* error = diagnostics_.error(index);
-      return error ? moduleName(error->module) : "Unknown module";
+      return error
+          ? String(error->warning ? "[WARNING] " : "[ERROR] ") +
+              moduleName(error->module)
+          : "Unknown module";
     }
     return "OVERRIDE AND CONTINUE";
   }
 
   if (screen == ScreenId::MainMenu) {
-    static const char* ITEMS[] = {"CAN Tools", "GPS Tools", "Settings"};
+    static const char* ITEMS[] = {
+      "CAN Tools", "GPS Tools", "SIM / Cellular", "Settings"
+    };
     return ITEMS[index];
   }
 
@@ -229,6 +251,8 @@ String MenuSystem::itemLabel(ScreenId screen, uint8_t index) const {
     case ScreenId::GpsNmeaStatistics:
     case ScreenId::About:
       return "< Back";
+    case ScreenId::SimStatus:
+      return "< Back";
 
     case ScreenId::CanStatus:
       return index == 0 ? "Retry CAN Controller" : "< Back";
@@ -249,6 +273,28 @@ String MenuSystem::itemLabel(ScreenId screen, uint8_t index) const {
       return index == 0 ? "Read VIN" : "< Back";
     case ScreenId::GpsRawNmea:
       return index == 0 ? "Toggle Raw Serial" : "< Back";
+    case ScreenId::SimConfiguration:
+      switch (index) {
+        case 0: return "Status / diagnostics";
+        case 1: return sim_.enabled() ? "Disable modem" : "Enable modem";
+        case 2: return sim_.autoSend() ? "Disable auto send" : "Enable auto send";
+        case 3: return "Data to send";
+        case 4: return "Receiver IP";
+        case 5: return "Receiver port";
+        case 6: return "Access key";
+        case 7: return "Send telemetry now";
+        case 8: return "Send interval";
+        case 9: return "Reset / reconnect";
+        default: return "< Back";
+      }
+    case ScreenId::SimDataSelection:
+      if (index == 0) {
+        return settings_.simSendGps ? "[X] GPS telemetry" : "[ ] GPS telemetry";
+      }
+      if (index == 1) {
+        return settings_.simSendObd ? "[X] OBD-II telemetry" : "[ ] OBD-II telemetry";
+      }
+      return "< Back";
     default:
       return "?";
   }
@@ -264,6 +310,31 @@ String MenuSystem::itemValue(ScreenId screen, uint8_t index) const {
       case 4: return settings_.webUiEnabled ? "ON" : "OFF";
       case 5: return String(settings_.uiRefreshMs) + " ms";
       case 6: return String(settings_.obdPollMs) + " ms";
+      default: return "";
+    }
+  }
+
+  if (screen == ScreenId::SimConfiguration) {
+    switch (index) {
+      case 0: return sim_.stateLabel();
+      case 1: return sim_.enabled() ? "ON" : "OFF";
+      case 2: return sim_.autoSend() ? "ON" : "OFF";
+      case 3:
+        if (settings_.simSendGps && settings_.simSendObd) return "GPS + OBD";
+        if (settings_.simSendGps) return "GPS only";
+        if (settings_.simSendObd) return "OBD only";
+        return "STATUS ONLY";
+      case 4: return ipLabel(settings_.simServerIp);
+      case 5: return settings_.simServerPort
+          ? String(settings_.simServerPort) : "NOT SET";
+      case 6: {
+        char key[7];
+        snprintf(key, sizeof(key), "%06lu",
+            static_cast<unsigned long>(settings_.simAccessKey));
+        return key;
+      }
+      case 7: return sim_.ready() ? "READY" : "QUEUED";
+      case 8: return String(sim_.sendInterval() / 1000) + " s";
       default: return "";
     }
   }
@@ -286,9 +357,12 @@ String MenuSystem::itemValue(ScreenId screen, uint8_t index) const {
 }
 
 bool MenuSystem::itemEnabled(ScreenId screen, uint8_t index) const {
-  (void)index;
   if (screen == ScreenId::CanIdBrowser && index < can_.statistics().uniqueIdCount) {
     return can_.idEntry(index) != nullptr;
+  }
+  if (screen == ScreenId::SimConfiguration &&
+      (index == 2 || index == 7 || index == 8 || index == 9)) {
+    return sim_.enabled();
   }
   return true;
 }
@@ -314,6 +388,7 @@ void MenuSystem::activateItem(ScreenId screen, uint8_t index) {
   if (screen == ScreenId::MainMenu) {
     if (index == 0) pushScreen(ScreenId::CanMenu);
     else if (index == 1) pushScreen(ScreenId::GpsMenu);
+    else if (index == 2) pushScreen(ScreenId::SimConfiguration);
     else pushScreen(ScreenId::SettingsMenu);
     return;
   }
@@ -413,6 +488,7 @@ void MenuSystem::activateItem(ScreenId screen, uint8_t index) {
     case ScreenId::GpsTime:
     case ScreenId::GpsNmeaStatistics:
     case ScreenId::About:
+    case ScreenId::SimStatus:
       goBack();
       break;
 
@@ -463,6 +539,60 @@ void MenuSystem::activateItem(ScreenId screen, uint8_t index) {
         gps_.setRawSerialEnabled(false);
         goBack();
       }
+      break;
+    case ScreenId::SimConfiguration:
+      switch (index) {
+        case 0:
+          pushScreen(ScreenId::SimStatus);
+          break;
+        case 1:
+          settings_.simEnabled = !settings_.simEnabled;
+          sim_.setEnabled(settings_.simEnabled);
+          settingsStore_.saveSim(settings_);
+          break;
+        case 2:
+          settings_.simAutoSend = !settings_.simAutoSend;
+          sim_.setAutoSend(settings_.simAutoSend);
+          settingsStore_.saveSim(settings_);
+          break;
+        case 3:
+          pushScreen(ScreenId::SimDataSelection);
+          break;
+        case 4:
+          beginSimEditor(ScreenId::SimIpEditor);
+          break;
+        case 5:
+          beginSimEditor(ScreenId::SimPortEditor);
+          break;
+        case 6:
+          beginSimEditor(ScreenId::SimKeyEditor);
+          break;
+        case 7:
+          sim_.requestSendNow();
+          break;
+        case 8:
+          cycleSimInterval();
+          settingsStore_.saveSim(settings_);
+          break;
+        case 9:
+          sim_.requestReset();
+          break;
+        case 10:
+          goBack();
+          break;
+      }
+      break;
+    case ScreenId::SimDataSelection:
+      if (index == 0) {
+        settings_.simSendGps = !settings_.simSendGps;
+      } else if (index == 1) {
+        settings_.simSendObd = !settings_.simSendObd;
+      } else {
+        goBack();
+        break;
+      }
+      sim_.setPayloadSelection(settings_.simSendGps, settings_.simSendObd);
+      settingsStore_.saveSim(settings_);
       break;
     default:
       break;
@@ -519,14 +649,20 @@ UiFrame MenuSystem::buildFrame(ScreenId screen) const {
     case ScreenId::GpsTime:            fillGpsTime(frame); break;
     case ScreenId::GpsNmeaStatistics:  fillGpsNmeaStatistics(frame); break;
     case ScreenId::GpsRawNmea:         fillGpsRawNmea(frame); break;
+    case ScreenId::SimStatus:          fillSimConfiguration(frame); break;
+    case ScreenId::SimIpEditor:
+    case ScreenId::SimPortEditor:
+    case ScreenId::SimKeyEditor:       fillSimEditor(frame, screen); break;
     case ScreenId::About:              fillAbout(frame); break;
     default:                            break;
   }
 
   if (screen == ScreenId::StartupErrors) {
     frame.layout = UiLayout::Alert;
-    frame.subtitle = "One or more modules failed during startup.";
-    frame.status = "Inspect an error or choose OVERRIDE.";
+    frame.subtitle = diagnostics_.hasFatalErrors()
+        ? "Startup errors or module warnings detected."
+        : "Optional module warnings detected.";
+    frame.status = "Inspect a module or choose OVERRIDE AND CONTINUE.";
   } else if (screen == ScreenId::CanIdBrowser) {
     frame.subtitle = "Discovered CAN identifiers";
     frame.status = String(can_.statistics().uniqueIdCount) + " unique IDs";
@@ -539,7 +675,7 @@ UiFrame MenuSystem::buildFrame(ScreenId screen) const {
 
 String MenuSystem::titleFor(ScreenId screen) const {
   switch (screen) {
-    case ScreenId::StartupErrors:      return "Module Errors";
+    case ScreenId::StartupErrors:      return "Startup Diagnostics";
     case ScreenId::StartupErrorDetail: return "Error Details";
     case ScreenId::MainMenu:           return "Scan-Track-Log";
     case ScreenId::CanMenu:            return "CAN Tools";
@@ -566,6 +702,12 @@ String MenuSystem::titleFor(ScreenId screen) const {
     case ScreenId::GpsNmeaStatistics:  return "NMEA Statistics";
     case ScreenId::GpsRawNmea:         return "Raw NMEA";
     case ScreenId::SettingsMenu:       return "Settings";
+    case ScreenId::SimConfiguration:   return "SIM Configuration";
+    case ScreenId::SimStatus:          return "SIM Status";
+    case ScreenId::SimDataSelection:   return "Telemetry Selection";
+    case ScreenId::SimIpEditor:        return "Receiver IP";
+    case ScreenId::SimPortEditor:      return "Receiver Port";
+    case ScreenId::SimKeyEditor:       return "Access Key";
     case ScreenId::About:              return "About";
   }
   return "RoadLink";
@@ -593,6 +735,8 @@ UiLayout MenuSystem::layoutFor(ScreenId screen) const {
     case ScreenId::ObdMenu:
     case ScreenId::GpsMenu:
     case ScreenId::SettingsMenu:
+    case ScreenId::SimConfiguration:
+    case ScreenId::SimDataSelection:
       return UiLayout::Menu;
     default:
       return UiLayout::Detail;
@@ -627,6 +771,7 @@ void MenuSystem::fillStartupErrorDetail(UiFrame& frame) const {
     return;
   }
   addField(frame, "Module", moduleName(error->module));
+  addField(frame, "Severity", error->warning ? "Warning" : "Error");
   addField(frame, "Summary", error->summary);
   addField(frame, "Primary code", String(error->primaryCode));
   addField(frame, "Secondary code", String(error->secondaryCode));
@@ -826,6 +971,162 @@ void MenuSystem::fillGpsRawNmea(UiFrame& frame) const {
   frame.status = "Raw NMEA can also be streamed to Serial Monitor.";
 }
 
+void MenuSystem::fillSimConfiguration(UiFrame& frame) const {
+  const Sim800Snapshot& sim = sim_.snapshot();
+  addField(frame, "Modem", sim_.stateLabel());
+  addField(frame, "AT response", sim.modemResponsive ? "Detected" : "No response");
+  addField(frame, "SIM card", sim.simReady ? "Ready" : "Not ready");
+  addField(frame, "GSM network", sim.networkRegistered ? "Registered" : "Not registered");
+  addField(
+      frame,
+      "Signal CSQ",
+      sim.signalQuality == 99 ? "Unknown" : String(sim.signalQuality) + " / 31");
+  addField(frame, "GPRS", sim.gprsAttached ? "Attached" : "Detached");
+  addField(frame, "Bearer", sim.bearerOpen ? sim.ipAddress : "Closed");
+  addField(frame, "APN", AppConfig::SIM_APN);
+  addField(
+      frame,
+      "Payload",
+      settings_.simSendGps
+          ? (settings_.simSendObd ? "GPS + OBD-II" : "GPS only")
+          : (settings_.simSendObd ? "OBD-II only" : "Status only"));
+  addField(
+      frame,
+      "Receiver",
+      sim_.endpointConfigured() ? sim_.endpointLabel() : "Not configured");
+  addField(
+      frame,
+      "Last HTTP",
+      sim.lastHttpStatus ? String(sim.lastHttpStatus) : "No POST yet");
+  addField(frame, "Posts", String(sim.successfulPosts) + " OK / " + sim.failedPosts + " failed");
+  addField(
+      frame,
+      "Last error",
+      sim.lastError.length() ? sim.lastError : "None");
+  frame.status = sim.sending
+      ? "Sending GPS + OBD-II telemetry..."
+      : (sim_.ready()
+          ? "Cellular telemetry is ready."
+          : "Enter the IP, port, and key shown by the desktop app.");
+}
+
+void MenuSystem::fillSimEditor(UiFrame& frame, ScreenId screen) const {
+  if (screen == ScreenId::SimIpEditor) {
+    String value;
+    for (uint8_t index = 0; index < 4; ++index) {
+      if (index) value += '.';
+      if (index == editPosition_) value += '[';
+      value += editIp_[index];
+      if (index == editPosition_) value += ']';
+    }
+    addField(frame, "IPv4 address", value);
+    frame.subtitle = "Rotate: change octet  |  Press: next";
+  } else {
+    const uint8_t length = screen == ScreenId::SimPortEditor ? 5 : 6;
+    String value;
+    for (uint8_t index = 0; index < length; ++index) {
+      if (index == editPosition_) value += '[';
+      value += editDigits_[index];
+      if (index == editPosition_) value += ']';
+    }
+    addField(
+        frame,
+        screen == ScreenId::SimPortEditor ? "TCP port" : "Six-digit key",
+        value);
+    frame.subtitle = "Rotate: change digit  |  Press: next";
+  }
+  frame.status = "Back cancels. Press on the final value to save.";
+}
+
+bool MenuSystem::handleSimEditorInput(InputEvent event) {
+  const ScreenId screen = currentScreen();
+  if (screen != ScreenId::SimIpEditor &&
+      screen != ScreenId::SimPortEditor &&
+      screen != ScreenId::SimKeyEditor) {
+    return false;
+  }
+
+  if (event == InputEvent::Back) {
+    goBack();
+    return true;
+  }
+
+  if (event == InputEvent::RotateLeft || event == InputEvent::RotateRight) {
+    const int8_t direction = event == InputEvent::RotateRight ? 1 : -1;
+    if (screen == ScreenId::SimIpEditor) {
+      int16_t value = static_cast<int16_t>(editIp_[editPosition_]) + direction;
+      if (value < 0) value = 255;
+      if (value > 255) value = 0;
+      editIp_[editPosition_] = static_cast<uint8_t>(value);
+    } else {
+      int8_t value = static_cast<int8_t>(editDigits_[editPosition_]) + direction;
+      if (value < 0) value = 9;
+      if (value > 9) value = 0;
+      editDigits_[editPosition_] = static_cast<uint8_t>(value);
+    }
+    return true;
+  }
+
+  if (event == InputEvent::Press) {
+    const uint8_t length = screen == ScreenId::SimIpEditor
+        ? 4
+        : (screen == ScreenId::SimPortEditor ? 5 : 6);
+    if (++editPosition_ >= length) {
+      commitSimEditor(screen);
+      goBack();
+    }
+    return true;
+  }
+  return true;
+}
+
+void MenuSystem::beginSimEditor(ScreenId screen) {
+  editPosition_ = 0;
+  if (screen == ScreenId::SimIpEditor) {
+    memcpy(editIp_, settings_.simServerIp, sizeof(editIp_));
+  } else {
+    const uint32_t value = screen == ScreenId::SimPortEditor
+        ? settings_.simServerPort
+        : settings_.simAccessKey;
+    const uint8_t length = screen == ScreenId::SimPortEditor ? 5 : 6;
+    uint32_t divisor = 1;
+    for (uint8_t index = 1; index < length; ++index) divisor *= 10;
+    for (uint8_t index = 0; index < length; ++index) {
+      editDigits_[index] = (value / divisor) % 10;
+      divisor /= 10;
+    }
+  }
+  pushScreen(screen);
+}
+
+void MenuSystem::commitSimEditor(ScreenId screen) {
+  if (screen == ScreenId::SimIpEditor) {
+    memcpy(settings_.simServerIp, editIp_, sizeof(editIp_));
+  } else {
+    const uint8_t length = screen == ScreenId::SimPortEditor ? 5 : 6;
+    uint32_t value = 0;
+    for (uint8_t index = 0; index < length; ++index) {
+      value = value * 10 + editDigits_[index];
+    }
+    if (screen == ScreenId::SimPortEditor) {
+      if (value == 0) value = 1;
+      if (value > 65535) value = 65535;
+      settings_.simServerPort = static_cast<uint16_t>(value);
+    } else {
+      settings_.simAccessKey = value;
+    }
+  }
+  sim_.setEndpoint(
+      settings_.simServerIp,
+      settings_.simServerPort,
+      settings_.simAccessKey);
+  settingsStore_.saveSim(settings_);
+}
+
+String MenuSystem::ipLabel(const uint8_t ip[4]) const {
+  return String(ip[0]) + "." + ip[1] + "." + ip[2] + "." + ip[3];
+}
+
 void MenuSystem::fillAbout(UiFrame& frame) const {
   addField(frame, "Project", "Roderic Systems RoadLink");
   addField(frame, "Controller", "ESP32 + MCP2515 8 MHz");
@@ -834,6 +1135,7 @@ void MenuSystem::fillAbout(UiFrame& frame) const {
   addField(frame, "Phone transport", "Local HTTP + live WebSocket");
   addField(frame, "Navigation", "Rotary tree with explicit Back");
   addField(frame, "CAN diagnostics", "Passive monitor + OBD-II ISO-TP");
+  addField(frame, "Cellular", "SIM800L HTTP telemetry");
 }
 
 bool MenuSystem::ensureObdTransmitMode() {
@@ -886,6 +1188,15 @@ void MenuSystem::cycleObdPoll() {
   else if (settings_.obdPollMs <= 200) settings_.obdPollMs = 500;
   else settings_.obdPollMs = 80;
   obd_.setPollInterval(settings_.obdPollMs);
+}
+
+void MenuSystem::cycleSimInterval() {
+  const uint32_t current = settings_.simSendIntervalMs;
+  if (current <= 5000) settings_.simSendIntervalMs = 10000;
+  else if (current <= 10000) settings_.simSendIntervalMs = 30000;
+  else if (current <= 30000) settings_.simSendIntervalMs = 60000;
+  else settings_.simSendIntervalMs = 5000;
+  sim_.setSendInterval(settings_.simSendIntervalMs);
 }
 
 String MenuSystem::formatHexId(uint32_t id, bool extended) const {
