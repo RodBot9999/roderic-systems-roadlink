@@ -1,0 +1,168 @@
+RODERIC SYSTEMS CAN DIAGNOSTICS V3-TFT
+CHANGELOG / IMPLEMENTATION MAP
+Generated: 2026-07-17
+Updated: 2026-07-23
+
+BASE PROJECT
+------------
+Input project: RodBot_CAN_Scanner_V3_Modified(3).zip
+The existing CAN, OBD-II, GPS, encoder, startup-diagnostics, Serial UI, HTTP,
+and WebSocket logic was retained. The TFT is a new renderer consuming the same
+UiModel/UiFrame used by the phone and Serial interfaces.
+
+TARGET TFT WIRING
+-----------------
+Shared SPI SCK:   GPIO5
+Shared SPI MOSI:  GPIO18
+Shared SPI MISO:  GPIO19
+MCP2515 CS:       GPIO23
+TFT CS:           GPIO12
+TFT DC:           GPIO14
+TFT RESET:        GPIO15
+
+GPIO12/GPIO14 are the confirmed working TFT control pins on the assembled
+unit. The earlier GPIO22/GPIO21 assignment caused unresolved hardware behavior
+and is no longer used.
+
+The firmware targets an ILI9341-compatible 240x320 SPI module in landscape
+rotation, producing a 320x240 UI. The TFT LED/backlight pin is not driven by
+software in this version.
+
+NEW ARDUINO LIBRARIES
+---------------------
+1. Adafruit GFX Library
+2. Adafruit ILI9341
+
+Existing required libraries remain:
+- mcp_can by Cory J. Fowler
+- WebSockets by Markus Sattler / Links2004
+- ESP32 board package by Espressif Systems
+
+FILES CREATED
+-------------
+
+1. TftRenderer.h, lines 1-89
+   - Declares BootCheckState.
+   - Declares the ILI9341 renderer service.
+   - Defines splash, startup-check, menu, detail, alert, pagination, partial
+     redraw, and revision-update interfaces.
+   - Keeps all TFT-specific drawing outside MenuSystem and protocol services.
+
+2. TftRenderer.cpp, lines 1-597
+   - Lines 1-28: shared display geometry and industrial/cyber color palette.
+   - Lines 30-53: constructor and shared-SPI ILI9341 initialization.
+   - Lines 55-126: uploaded splash and RODERIC SYSTEMS startup diagnostics.
+   - Lines 128-167: UiModel revision tracking and packed splash rendering.
+   - Lines 169-202: renderer dispatch and partial-redraw pipeline.
+   - Lines 204-263: common shell, header, breadcrumb, and knob-action footer.
+   - Lines 265-330: full menu and two-column detail rendering.
+   - Lines 332-399: optimized partial menu/field/status updates.
+   - Lines 401-426: alert/error layout.
+   - Lines 428-495: field cells, menu rows, highlight bar, and scrollbar.
+   - Lines 497-553: ASCII cleanup, clipping, and state-based colors.
+   - Lines 555-597: screen identity, automatic detail pagination, viewport,
+     and UiItem/UiField comparison helpers.
+   - Detail screens containing over ten fields automatically cycle pages every
+     2.6 seconds without changing the tree-menu logic.
+   - Partial redraws avoid repainting the whole display for every CAN/GPS/OBD
+     value change, reducing SPI blocking and CAN-frame loss risk.
+
+3. SplashImage.h, lines 1-972
+   - Contains the uploaded 320x240 RODERIC SYSTEMS splash.
+   - The original four-color PNG was converted to a four-entry RGB565 palette
+     plus packed 2-bit-per-pixel data.
+   - Compiled pixel payload is 19,200 bytes instead of a 153,600-byte RGB565
+     framebuffer.
+   - Requires no PNG decoder, filesystem, or SD card at boot.
+
+FILES MODIFIED
+--------------
+
+4. AppConfig.h
+   - Defines TFT CS=GPIO12, DC=GPIO14, RESET=GPIO15.
+   - Defines rotation, SPI clock, and the three-second diagnostics hold.
+   - The TFT uses the same GPIO5/18/19 SPI bus already used by MCP2515.
+
+5. RodBot_CAN_Scanner_V3.ino
+   - Line 12: includes TftRenderer.h.
+   - Lines 27-31: constructs the global TFT renderer from UiModel and TFT pins.
+   - Lines 49-118: adds TFT initialization, the uploaded splash, and live
+     startup checks for rotary input, UI core, GPS, OBD, CAN, and WebSocket.
+   - CAN initialization failure is still reported through StartupDiagnostics;
+     the TFT shows ERROR and then opens the existing module-error/override menu.
+   - Lines 140-143: updates the TFT from the same UiModel revision consumed by
+     Serial and WebSocket.
+
+6. WebUiService.cpp
+   - Lines 17-20: changed the phone UI to a monospaced black/cyan
+     industrial-cyber palette matching the TFT.
+   - Lines 29, 43, and 48: changed panels, status boxes, and buttons to sharper
+     technical styling.
+   - Line 62: changed the browser identity header to
+     RODERIC SYSTEMS // CAN DIAGNOSTICS.
+   - Line 130: changed the runtime fallback title to the same identity.
+   - WebSocket behavior, local hosting, controls, and JSON protocol are unchanged.
+
+7. MenuSystem.cpp
+   - Lines 829-836: updated About data to identify the V3-TFT build, the
+     UiModel -> TFT/WebSocket/Serial pipeline, and ILI9341 landscape renderer.
+   - No navigation-tree behavior was changed.
+
+8. README_ARCHITECTURE.md, lines 1-206
+   - Rewritten for the TFT build.
+   - Documents libraries, wiring, boot sequence, shared SPI, visual renderer,
+     packed image format, field pagination, web synchronization, and first test.
+
+UNCHANGED CORE BEHAVIOR
+-----------------------
+- Tree/folder menu controlled by one rotary encoder.
+- Explicit < Back item in every submenu/detail flow.
+- Physical knob and phone controls produce the same InputEvent values.
+- CAN passive monitor, ID browser, statistics, bidirectional TX, and OBD-II.
+- GPS parser, decimal coordinates, speed, altitude, PPS, and NMEA statistics.
+- Startup module-error list and OVERRIDE behavior.
+- Local ESP32 SoftAP, HTTP page, and persistent WebSocket.
+- Serial UI mirror.
+
+BOOT DISPLAY FLOW
+-----------------
+1. Full-screen uploaded RODERIC SYSTEMS splash.
+2. Splash remains visible until the encoder is pressed.
+3. SYSTEM DIAGNOSTICS / BOOT SEQUENCE screen.
+4. Live rows:
+   ROTARY INPUT .... OK
+   UI CORE ......... OK
+   GPS RECEIVER .... OK
+   OBD SERVICE ..... READY
+   CAN CONTROLLER .. OK or ERROR
+   WEB SOCKET ...... OK or OFF
+5. Completed diagnostics remain visible for three seconds; an encoder press
+   skips the remaining delay.
+6. Normal UiFrame rendering begins.
+
+UI LOOK
+-------
+- Style blend: professional diagnostic instrument + embedded/cyber lab.
+- Black background, cyan structure, white values, muted gray metadata.
+- Green OK, amber waiting/listen states, red failures/destructive actions.
+- Six visible menu rows with selected-row bar and scrollbar.
+- Detail data uses up to ten fields per page in a two-column grid.
+- The footer always exposes the current knob action or selected explicit Back.
+
+VALIDATION PERFORMED
+--------------------
+- TftRenderer.cpp passed a host-side C++17 syntax check using compatibility
+  stubs for Arduino, SPI, Adafruit GFX, and Adafruit ILI9341.
+- Embedded browser JavaScript passed `node --check`.
+- Source scan confirms no LiquidCrystal/LcdView/I2C rendering dependency exists.
+- Final Arduino compilation and hardware behavior must still be verified with
+  the user's exact ESP32 core, Adafruit library versions, ILI9341 clone, wiring,
+  and shared SPI bus.
+
+FIRST-BOOT NOTES
+----------------
+- If the image is upside down, change AppConfig::TFT_ROTATION from 1 to 3.
+- If the backlight turns on but no graphics appear, verify ILI9341 compatibility,
+  TFT CS GPIO12, DC GPIO14, RESET GPIO15, shared SCK/MOSI, and common ground.
+- If colors are incorrect on the clone, display inversion or RGB/BGR settings
+  may require a small controller-specific adjustment after the first test.
