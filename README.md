@@ -144,6 +144,25 @@ For the complete bring-up procedure, see
 requirements are documented in
 [SIM800L Telemetry](docs/SIM800L_TELEMETRY.md).
 
+## PCB development
+The pcb was custom developed in EasyEDAPRO.
+
+attached pcb design screenshot:
+<img
+  src="https://github.com/user-attachments/assets/eb4067a7-b804-4691-a068-9f5684fbd96c"
+  alt="Screenshot"
+  width="650"
+/>
+
+### Construction
+
+<img
+  src="https://github.com/user-attachments/assets/0baadba2-f8f9-4183-9515-8ec58e648503"
+  alt="Construction"
+  width="700"
+/>
+
+
 ## Safety
 
 RoadLink interfaces with automotive networks. Validate voltage levels,
