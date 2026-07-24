@@ -16,13 +16,14 @@ shows the same state.
 > release. The current firmware and diagnostic utilities are published on
 > [`codex/current-build-tools`](https://github.com/RodBot9999/roderic-systems-roadlink/tree/codex/current-build-tools).
 
-## Why the PCB was designed
+## PCB design and construction
 
 RoadLink began as a way to replace a loose collection of development boards and
 test wiring with one organized, serviceable prototype. The carrier PCB places
 the ESP32 at the center of the system and provides dedicated connections for the
 CAN controller, GPS receiver, TFT, rotary encoder, SIM800L, power filtering, and
-logic-level conditioning.
+logic-level conditioning. The PCB was designed in **EasyEDA Pro** and then
+assembled as the working RoadLink prototype.
 
 The board was designed around practical pin use:
 
@@ -42,6 +43,28 @@ The board was designed around practical pin use:
 This remains a prototype carrier rather than an automotive-qualified control
 unit. Vehicle power protection, enclosure design, environmental validation, and
 safe CAN connection practices are still required for permanent installation.
+
+### PCB layout
+
+The EasyEDA Pro layout organizes the removable modules and user interface around
+the ESP32 while keeping shared buses and power routing visible and serviceable.
+
+<img
+  src="https://github.com/user-attachments/assets/eb4067a7-b804-4691-a068-9f5684fbd96c"
+  alt="RoadLink carrier PCB design in EasyEDA Pro"
+  width="760"
+/>
+
+### Assembled prototype
+
+The construction below shows the design populated with the ESP32, display,
+communications modules, level conversion, and local power filtering.
+
+<img
+  src="https://github.com/user-attachments/assets/0baadba2-f8f9-4183-9515-8ec58e648503"
+  alt="Assembled Roderic Systems RoadLink prototype"
+  width="760"
+/>
 
 ## System overview
 
@@ -143,25 +166,6 @@ For the complete bring-up procedure, see
 [Getting Started](docs/GETTING_STARTED.md). Cellular configuration and power
 requirements are documented in
 [SIM800L Telemetry](docs/SIM800L_TELEMETRY.md).
-
-## PCB development
-The pcb was custom developed in EasyEDAPRO.
-
-attached pcb design screenshot:
-<img
-  src="https://github.com/user-attachments/assets/eb4067a7-b804-4691-a068-9f5684fbd96c"
-  alt="Screenshot"
-  width="650"
-/>
-
-### Construction
-
-<img
-  src="https://github.com/user-attachments/assets/0baadba2-f8f9-4183-9515-8ec58e648503"
-  alt="Construction"
-  width="700"
-/>
-
 
 ## Safety
 
