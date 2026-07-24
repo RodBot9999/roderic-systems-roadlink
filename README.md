@@ -59,6 +59,13 @@ The included configuration targets:
 
 The tested TFT control pins are CS `GPIO12`, DC `GPIO14`, and RESET `GPIO15`.
 
+## PCB development
+The pcb was custom developed in EasyEDAPRO.
+
+attached pcb design screenshot:
+<img width="1557" height="1262" alt="image" src="https://github.com/user-attachments/assets/eb4067a7-b804-4691-a068-9f5684fbd96c" />
+
+
 ## Safety
 
 RoadLink interfaces with automotive networks. Validate wiring, voltage levels, grounding, and CAN termination before connecting it to a vehicle. Keep the controller in listen-only mode unless active transmission is intentional and understood. Do not operate the interface while driving.
