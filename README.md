@@ -63,7 +63,19 @@ The tested TFT control pins are CS `GPIO12`, DC `GPIO14`, and RESET `GPIO15`.
 The pcb was custom developed in EasyEDAPRO.
 
 attached pcb design screenshot:
-<img width="1557" height="1262" alt="image" src="https://github.com/user-attachments/assets/eb4067a7-b804-4691-a068-9f5684fbd96c" />
+<img
+  src="https://github.com/user-attachments/assets/eb4067a7-b804-4691-a068-9f5684fbd96c"
+  alt="Screenshot"
+  width="650"
+/>
+
+### Construction
+
+<img
+  src="https://github.com/user-attachments/assets/0baadba2-f8f9-4183-9515-8ec58e648503"
+  alt="Construction"
+  width="700"
+/>
 
 
 ## Safety
