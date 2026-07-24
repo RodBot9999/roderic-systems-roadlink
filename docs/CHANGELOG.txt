@@ -1,7 +1,50 @@
 RODERIC SYSTEMS CAN DIAGNOSTICS V3-TFT
 CHANGELOG / IMPLEMENTATION MAP
 Generated: 2026-07-17
-Updated: 2026-07-23
+Updated: 2026-07-24
+
+STARTUP FREEZE HARDENING
+------------------------
+- Moved MCP2515 initialization ahead of the optional SIM800L UART startup.
+- Set the disconnected SIM RX input to UART idle-high with an internal pull-up,
+  preventing 115200-baud noise interrupts from disrupting startup.
+- Made the optional GPS/SIM detection window immediately skippable with the
+  encoder and retained the three-second completed-diagnostics hold.
+- Added Serial Monitor boot boundary messages for CAN, SIM, and web startup.
+- Confirmed the SIM800L UART default used by this build is 115200 baud.
+
+ROADLINK STARTUP AND SIM MENU FIXES
+----------------------------------
+- Moved first menu publication to the end of the completed boot sequence.
+- Added bounded GPS UART and SIM800L AT-response startup checks.
+- Missing GPS/SIM modules now create overridable warnings without indefinite
+  initialization waits; disabled SIM displays OFF without a warning.
+- Startup Diagnostics preselects OVERRIDE AND CONTINUE for one-press recovery.
+- Promoted SIM / Cellular from Settings to the main menu.
+- Added a SIM status page and persisted checkbox-style GPS/OBD payload selectors.
+
+ROADLINK TEMPORARY CELLULAR RECEIVER
+------------------------------------
+- Desktop monitor now requests and renews a temporary NAT-PMP or UPnP TCP
+  mapping, displays its public IPv4 address and port, and removes it on close.
+- Added a generated six-digit access key and authenticated telemetry handling.
+- Added rotary IP, TCP-port, and access-key editors to SIM Configuration.
+- Added ESP32 Preferences/NVS persistence for SIM connection settings.
+- Removed the compiled receiver/tunnel URL; the saved TFT configuration is now
+  the only telemetry endpoint path.
+
+ROADLINK SIM800L TELEMETRY TEST
+------------------------------
+- Added SIM800L UART wiring: GPIO16 -> module RX, GPIO17 <- module TX,
+  and GPIO2 -> module RST.
+- Added non-blocking Sim800Service with SIM/GSM registration, CSQ, GPRS
+  bearer, retry handling, and HTTP POST state machines.
+- Added JSON telemetry built from the existing GPS and OBD-II snapshots.
+- Added Settings -> SIM Configuration with enable, auto-send, send-now,
+  interval, reset/reconnect, live state, HTTP status, and counters.
+- Added the RoadLink desktop telemetry monitor, JSONL logging, headless mode,
+  and automated receiver tests.
+- Added SIM800L setup, wiring, power, endpoint, and payload documentation.
 
 BASE PROJECT
 ------------

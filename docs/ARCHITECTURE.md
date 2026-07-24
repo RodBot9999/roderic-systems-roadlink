@@ -1,6 +1,6 @@
 # Roderic Systems RoadLink Architecture
 
-ESP32 automotive CAN/GPS/OBD scanner with a renderer-independent UI, a 2.4-inch SPI TFT, a local phone web app, and live WebSocket updates.
+ESP32 automotive CAN/GPS/OBD scanner with a renderer-independent UI, a 2.4-inch SPI TFT, a local phone web app, live WebSocket updates, and SIM800L cellular telemetry.
 
 ## Required Arduino libraries
 
@@ -21,6 +21,9 @@ ESP32 automotive CAN/GPS/OBD scanner with a renderer-independent UI, a 2.4-inch 
 | GPS PPS | 34 |
 | GPS TX -> ESP32 RX | 35 |
 | GPS RX <- ESP32 TX | 32 |
+| SIM800L RST | 2 |
+| ESP32 TX -> SIM800L RX | 16 |
+| ESP32 RX <- SIM800L TX | 17 |
 | MCP2515 CS | 23 |
 | MCP2515 SO / shared MISO | 19 |
 | MCP2515 SI / shared MOSI | 18 |
@@ -36,6 +39,34 @@ GPIO12 and GPIO14 are the confirmed working TFT control pins on the assembled un
 
 The TFT is configured as a 320x240 landscape ILI9341 display. Its LED/backlight pin is treated as external hardware and is not driven by an ESP32 GPIO in this firmware.
 
+## Carrier PCB design
+
+The RoadLink PCB was created to turn the prototype into one organized vehicle
+interface instead of leaving the ESP32 and peripheral modules connected by
+loose bench wiring. It acts as a carrier and interconnect board for the ESP32
+development module, CAN interface, display, GPS receiver, rotary input, and
+cellular modem.
+
+The board-level design follows several practical constraints:
+
+- The TFT and MCP2515 share one SPI bus to conserve ESP32 pins. Independent
+  chip-select lines prevent both peripherals from driving the bus together.
+- GPS and SIM800L are assigned separate hardware UARTs so serial traffic can be
+  processed independently.
+- CAN interrupt, GPS PPS, encoder signals, and display control lines remain
+  dedicated rather than multiplexed.
+- Local bulk capacitance and short power paths support transient loads, but the
+  SIM800L still requires a correctly regulated external supply and appropriate
+  UART level handling.
+- The confirmed GPIO table documents the assembled PCB revision. It
+  intentionally replaces earlier experimental assignments that behaved
+  unreliably on the physical build.
+
+The carrier is a development prototype, not an automotive-qualified ECU.
+Permanent vehicle installation would additionally require appropriate input
+protection, load-dump and reverse-polarity protection, environmental testing,
+an enclosure, and validated connectors.
+
 ## Startup sequence
 
 1. The TFT initializes on the shared custom SPI bus.
@@ -46,12 +77,19 @@ The TFT is configured as a 320x240 landscape ILI9341 display. Its LED/backlight 
    - GPS receiver UART;
    - OBD service;
    - MCP2515 CAN controller;
+   - SIM800L modem;
    - local WebSocket server.
-4. CAN initialization failures are registered in the existing startup diagnostics system.
-5. When the checks finish, the diagnostics screen remains visible for three seconds. Pressing the encoder skips this delay.
-6. The normal tree menu opens. If CAN failed, the first rendered frame is the module-error menu with the existing override option.
+4. The MCP2515 initializes before the optional modem UART. CAN failures are
+   registered as errors, while missing GPS or SIM modules are warnings.
+5. The optional-module probe is bounded and can be skipped with an encoder
+   press, so disconnected hardware cannot trap startup.
+6. When checks finish, the diagnostics screen remains visible for three
+   seconds. Pressing the encoder skips the remaining delay.
+7. The normal tree menu opens. If diagnostics contain errors or warnings, the
+   module-status menu retains the existing override option.
 
-`GPS RECEIVER OK` means the ESP32 UART/PPS service initialized. Satellite fix quality remains a separate live GPS status.
+`GPS RECEIVER DETECTED` means serial bytes arrived during the startup probe.
+Satellite fix quality remains a separate live GPS status.
 
 ## Permanent navigation rule
 
@@ -133,6 +171,19 @@ Scan-Track-Log
 │   ├── Raw NMEA
 │   ├── Reset GPS Statistics
 │   └── Back
+├── SIM / Cellular
+│   ├── Status / diagnostics
+│   ├── Enable modem / auto send
+│   ├── Data to send
+│   │   ├── GPS telemetry
+│   │   ├── OBD-II telemetry
+│   │   └── Back
+│   ├── Receiver IP / port
+│   ├── Access key
+│   ├── Send telemetry now
+│   ├── Send interval
+│   ├── Reset / reconnect
+│   └── Back
 └── Settings
     ├── CAN Bitrate
     ├── CAN Operating Mode
@@ -193,6 +244,24 @@ Tree navigation, screen definitions, actions, settings, and conversion of servic
 ### `CanService.*`, `ObdService.*`, `GpsService.*`, `EncoderInput.*`
 Hardware and protocol services, independent of the active renderer.
 
+### `Sim800Service.*`
+Non-blocking SIM800L initialization, GSM/GPRS status, HTTP POST state machine, and JSON serialization of the existing GPS and OBD-II snapshots.
+
+`SettingsStore` persists the runtime receiver IPv4 address, TCP port, six-digit
+access key, enable state, auto-send state, and interval in ESP32 NVS. The
+receiver URL is assembled only inside `Sim800Service`; there is no alternate
+compiled tunnel endpoint.
+
+It also persists independent GPS and OBD-II payload-selection flags. SIM
+controls are a first-level main-menu branch, with a separate status screen,
+configuration actions, and checkbox-style telemetry selection.
+
+Startup owns a bounded optional-module probe before `MenuSystem::begin()`.
+GPS presence is based on received UART bytes; SIM800L presence is based on a
+successful `AT` response. Missing optional modules are recorded as warnings.
+Only after the timed diagnostics display finishes is the first menu frame
+published, preventing the boot renderer from being left on the check screen.
+
 ## Recommended first TFT test
 
 1. Install Adafruit GFX and Adafruit ILI9341 in Library Manager.
@@ -206,4 +275,8 @@ Hardware and protocol services, independent of the active renderer.
 
 ## Validation status
 
-The new `TftRenderer.cpp` passed a host-side C++17 syntax check using compatibility stubs. The full embedded build still requires Arduino IDE with the exact ESP32, Adafruit, MCP_CAN, and WebSockets library versions, followed by testing on the physical ILI9341 clone and shared SPI bus.
+The complete RoadLink firmware compiles with the Espressif ESP32 Arduino core
+3.3.7 and the documented libraries. The current build uses approximately 84%
+of flash and 17% of dynamic memory. The standalone SIM800L baud scanner also
+compiles independently. Final validation still depends on the physical PCB,
+module revisions, wiring, cellular network, and target vehicle.
