@@ -24,7 +24,7 @@ constexpr uint16_t COLOR_AMBER = 0xFD20;
 constexpr uint16_t COLOR_RED = 0xF800;
 constexpr uint16_t COLOR_DARK_RED = 0x5000;
 
-constexpr uint8_t BOOT_MAX_ROWS = 6;
+constexpr uint8_t BOOT_MAX_ROWS = 7;
 }
 
 TftRenderer::TftRenderer(
@@ -98,9 +98,9 @@ void TftRenderer::setSystemCheck(
     BootCheckState state) {
   if (!initialized_ || row >= BOOT_MAX_ROWS) return;
 
-  const int16_t y = 51 + static_cast<int16_t>(row) * 24;
-  tft_.fillRect(8, y, 304, 20, COLOR_BG);
-  tft_.drawFastHLine(8, y + 19, 304, COLOR_PANEL_ALT);
+  const int16_t y = 44 + static_cast<int16_t>(row) * 22;
+  tft_.fillRect(8, y, 304, 19, COLOR_BG);
+  tft_.drawFastHLine(8, y + 18, 304, COLOR_PANEL_ALT);
 
   tft_.setTextSize(1);
   tft_.setTextColor(COLOR_CYAN, COLOR_BG);

@@ -25,6 +25,7 @@ inline const char* moduleName(ModuleId module)
 
 struct ModuleError {
   ModuleId module = ModuleId::Unknown;
+  bool warning = false;
   String summary;
   int32_t primaryCode = 0;
   int32_t secondaryCode = 0;
@@ -44,7 +45,8 @@ public:
       ModuleId module,
       const String& summary,
       int32_t primaryCode = 0,
-      int32_t secondaryCode = 0)
+      int32_t secondaryCode = 0,
+      bool warning = false)
   {
     // Update an existing error instead of duplicating it.
     for (uint8_t i = 0; i < errorCount_; ++i) {
@@ -52,6 +54,7 @@ public:
         errors_[i].summary = summary;
         errors_[i].primaryCode = primaryCode;
         errors_[i].secondaryCode = secondaryCode;
+        errors_[i].warning = warning;
         return true;
       }
     }
@@ -64,9 +67,35 @@ public:
     errors_[errorCount_].summary = summary;
     errors_[errorCount_].primaryCode = primaryCode;
     errors_[errorCount_].secondaryCode = secondaryCode;
+    errors_[errorCount_].warning = warning;
 
     errorCount_++;
     return true;
+  }
+
+  bool reportWarning(
+      ModuleId module,
+      const String& summary,
+      int32_t primaryCode = 0,
+      int32_t secondaryCode = 0)
+  {
+    return report(module, summary, primaryCode, secondaryCode, true);
+  }
+
+  bool hasWarnings() const
+  {
+    for (uint8_t i = 0; i < errorCount_; ++i) {
+      if (errors_[i].warning) return true;
+    }
+    return false;
+  }
+
+  bool hasFatalErrors() const
+  {
+    for (uint8_t i = 0; i < errorCount_; ++i) {
+      if (!errors_[i].warning) return true;
+    }
+    return false;
   }
 
   bool hasErrors() const

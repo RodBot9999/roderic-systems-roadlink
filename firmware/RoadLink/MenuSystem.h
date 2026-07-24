@@ -7,6 +7,8 @@
 #include "GpsService.h"
 #include "CanService.h"
 #include "ObdService.h"
+#include "Sim800Service.h"
+#include "SettingsStore.h"
 #include "StartupDiagnostics.h"
 #include "WebUiService.h"
 
@@ -42,6 +44,12 @@ enum class ScreenId : uint8_t {
   GpsRawNmea,
 
   SettingsMenu,
+  SimConfiguration,
+  SimStatus,
+  SimDataSelection,
+  SimIpEditor,
+  SimPortEditor,
+  SimKeyEditor,
   About
 };
 
@@ -52,7 +60,9 @@ public:
       CanService& can,
       ObdService& obd,
       GpsService& gps,
+      Sim800Service& sim,
       AppSettings& settings,
+      SettingsStore& settingsStore,
       StartupDiagnostics& diagnostics,
       WebUiService& webUi);
 
@@ -117,6 +127,8 @@ private:
   void fillGpsTime(UiFrame& frame) const;
   void fillGpsNmeaStatistics(UiFrame& frame) const;
   void fillGpsRawNmea(UiFrame& frame) const;
+  void fillSimConfiguration(UiFrame& frame) const;
+  void fillSimEditor(UiFrame& frame, ScreenId screen) const;
   void fillAbout(UiFrame& frame) const;
 
   bool ensureObdTransmitMode();
@@ -125,6 +137,11 @@ private:
   void toggleCanMode();
   void cycleUiRefresh();
   void cycleObdPoll();
+  void cycleSimInterval();
+  bool handleSimEditorInput(InputEvent event);
+  void beginSimEditor(ScreenId screen);
+  void commitSimEditor(ScreenId screen);
+  String ipLabel(const uint8_t ip[4]) const;
 
   String formatHexId(uint32_t id, bool extended = false) const;
   String formatData(const uint8_t* data, uint8_t dlc) const;
@@ -136,7 +153,9 @@ private:
   CanService& can_;
   ObdService& obd_;
   GpsService& gps_;
+  Sim800Service& sim_;
   AppSettings& settings_;
+  SettingsStore& settingsStore_;
   StartupDiagnostics& diagnostics_;
   WebUiService& webUi_;
 
@@ -145,4 +164,7 @@ private:
   uint8_t selectedErrorIndex_ = 0;
   uint8_t selectedCanIdIndex_ = 0;
   uint32_t lastRenderMs_ = 0;
+  uint8_t editIp_[4] = {};
+  uint8_t editDigits_[6] = {};
+  uint8_t editPosition_ = 0;
 };
