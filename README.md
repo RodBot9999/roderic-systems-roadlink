@@ -136,6 +136,7 @@ a startup warning but does not prevent the main menu from opening.
 
 ```text
 assets/                         Splash artwork and project media
+dashboard/                      RoadLink Fleet Windows desktop dashboard
 docs/
   ARCHITECTURE.md               Hardware and software architecture
   CHANGELOG.txt                 Implementation history
@@ -146,6 +147,7 @@ firmware/
 tools/                         Current-build branch
   roadlink_monitor/             Windows GPS/OBD telemetry receiver
   SIM800L_Baud_Terminal/        Standalone modem baud scanner and AT terminal
+  virtual_roadlink/             Standalone Python RoadLink telemetry simulator
 ```
 
 ## Quick start
