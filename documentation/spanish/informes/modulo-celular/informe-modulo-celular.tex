@@ -104,9 +104,6 @@
     \vspace{0.35cm}
     {\sffamily\bfseries\fontsize{38}{44}\selectfont\color{RoadBlue} Módulo celular}\par
     \vspace{0.8cm}
-    {\sffamily\fontsize{17}{22}\selectfont\color{RoadGray}
-      Evolución desde las pruebas M2M con SIM800L\par
-      hasta la integración del A7670SA en RoadLink}
     \vfill
     \begin{tabular}{>{\sffamily\bfseries}r >{\sffamily}l}
       Autor: & Roderic David Munguia Calvillo \\
@@ -117,7 +114,7 @@
     \begin{minipage}{0.82\textwidth}
       \centering
       \colorbox{RoadGreen}{\parbox{0.94\textwidth}{\centering\color{white}\sffamily\small
-        Documentación técnica del subsistema de comunicación remota}}
+        Documentación del módulo de comunicación celular}}
     \end{minipage}
     \vspace*{0.8cm}
   \end{center}
@@ -131,13 +128,13 @@
 
 \section{Introducción}
 
-RoadLink comenzó como una exploración de comunicación remota entre máquinas
-(\textit{machine-to-machine}, M2M). La primera meta no fue conectar de inmediato
-todos los subsistemas del vehículo, sino comprobar una idea fundamental: que un
-microcontrolador pudiera preparar información y enviarla de manera autónoma a
+RoadLink comenzó con la idea de desarrollar un sistema de monitoreo económico y flexible para vehículos comerciales, principalmente
+(\textit{machine-to-machine}, M2M). La primera fase no fue conectar de inmediato
+todos los subsistemas del vehículo, sino evaluar el principal objetivo: que un
+microcontrolador (ESP32) pudiera preparar información y enviarla de manera autónoma a
 través de una red celular.
 
-Para reducir la cantidad de variables durante las primeras pruebas, se utilizó
+Aprovechando módulos económicos y con documentación extensa, se utilizó
 un ESP32 conectado únicamente a un módulo SIM800L. Los datos enviados eran
 simulados, por lo que todavía no dependían del bus CAN, del GPS ni de la interfaz
 gráfica de RoadLink. La primera evidencia de comunicación se obtuvo mediante un
@@ -145,35 +142,26 @@ SMS. Posteriormente, el desarrollo avanzó hacia el uso de una conexión de dato
 y el envío de información por Internet.
 
 La evolución del proyecto llevó a sustituir el SIM800L por un A7670SA como
-plataforma celular de la versión actual. El cambio conserva el mismo concepto
-general: el ESP32 reúne los datos, controla el módem mediante comandos AT por
-UART y entrega una carga útil a un receptor remoto. La implementación se integra
-con el resto de RoadLink sin detener la lectura de CAN, GPS, OBD-II, la pantalla
-o la interfaz de usuario.
+plataforma celular de la versión actual, principalmente por la disminución del soporte de las compañías celulares para la red 2G. El cambio conserva el mismo concepto
+general: el ESP32 reúne los datos, controla el módulo SIM mediante comandos AT por
+UART y entrega un paquete de datos a una computadora remota.
 
-Este documento presenta la evolución, arquitectura, conexiones, protocolo,
-pruebas y criterios de integración del subsistema celular. Se omiten revisiones
-específicas de las placas, ya que las fotografías del hardware utilizado se
-incorporarán posteriormente.
-
-\section{Objetivo y alcance}
+\section{Objetivo}
 
 El objetivo del subsistema celular es permitir que RoadLink transmita
 información del vehículo hacia un destino externo, sin depender de una conexión
-local permanente. La solución debe:
+local. Para esto se evaluaron los siguientes objetivos:
 
 \begin{itemize}
   \item establecer comunicación serial confiable entre el ESP32 y el módem;
   \item verificar la tarjeta SIM, el registro en la red y la calidad de señal;
-  \item transportar datos simulados o datos reales de GPS y OBD-II;
+  \item mandar datos reales de GPS y OBD-II a un servidor o computadora central;
   \item detectar errores, aplicar tiempos límite y reintentar sin bloquear el sistema;
-  \item separar la alimentación del módem de la lógica del microcontrolador;
-  \item conservar una interfaz de software que permita cambiar el módem sin rediseñar RoadLink completo.
+  \item separar la alimentación del módulo celular del microcontrolador ESP32;
+  \item conservar una interfaz de software y hardware que permita cambiar el módulo celular sin rediseñar RoadLink completo.
 \end{itemize}
 
-El alcance de este informe se concentra en los módulos SIM800L y A7670SA, el
-ESP32, la conversión de niveles lógicos y las fuentes reductoras de voltaje. No
-se especifica una versión particular de las tarjetas comerciales.
+Este documento se centra en la primera fase del proyecto que fue probar el concepto de enviar datos remotamente a través de una red celular.
 
 \section{Evolución del desarrollo}
 
@@ -192,18 +180,14 @@ se especifica una versión particular de las tarjetas comerciales.
   \end{tabularx}
 \end{table}
 
-La secuencia anterior permitió validar cada capa por separado. Primero se
-comprobó el enlace eléctrico y serial; después, el acceso a la red; finalmente,
-la integración con los datos reales de RoadLink. Esta estrategia facilita la
-localización de fallas porque evita probar al mismo tiempo alimentación, UART,
-registro celular, adquisición vehicular y servidor.
+La tabla anterior resume las pruebas principales de esta fase del proyecto y el orden en que se realizaron.
 
 \section{Arquitectura del subsistema}
 
-La Figura~\ref{fig:arquitectura-celular} resume las conexiones funcionales. La
+La Figura~\ref{fig:arquitectura-celular} muestra las conexiones de forma simplificada. La
 entrada del sistema alimenta dos convertidores reductores. Una salida se reserva
-para el módem celular y la otra alimenta la electrónica lógica. El enlace UART
-entre el ESP32 y el módem atraviesa un conversor bidireccional de nivel.
+para el módulo SIM y la otra alimenta la electrónica lógica. Este diseño permite intercambiar fácilmente entre distintos módulos SIM, así como aislar las fuentes de alimentación (véase la Sección~\ref{sec:alimentacion}).
+El enlace UART entre el ESP32 y el módulo SIM se realizaba a través de un reductor de voltaje en la primera versión con el módulo SIM800L; sin embargo, con el nuevo módulo 4G A7670SA es directo, ya que opera con el mismo nivel de voltaje lógico de 3.3 V que el ESP32.
 
 \subsection{Criterios de diseño}
 
@@ -213,23 +197,22 @@ criterios principales:
 \begin{itemize}
   \item alimentación celular independiente de la alimentación lógica;
   \item tierra común para conservar la referencia eléctrica de UART;
-  \item adaptación de niveles entre el controlador y el módem;
+  \item adaptación de niveles entre el controlador y el módem (primera versión, no directa);
   \item separación entre adquisición de datos y transporte celular.
 \end{itemize}
 
-\subsection{Funciones de cada bloque}
+\subsection{Funciones de cada módulo}
 
 \begin{table}[H]
   \centering
   \caption{Responsabilidad de los bloques principales.}
   \begin{tabularx}{\textwidth}{>{\bfseries\raggedright\arraybackslash}p{4.1cm} Y}
     \toprule
-    Bloque & Función \\
+    Módulo & Función \\
     \midrule
     ESP32 & Ejecuta el firmware, reúne telemetría, construye mensajes y controla el módem. \\
-    SIM800L & Plataforma de las primeras pruebas de SMS y comunicación de datos. \\
-    A7670SA & Plataforma celular utilizada en la integración actual de RoadLink. \\
-    \shortstack[l]{Conversor\\bidireccional} & Adapta los niveles lógicos del enlace UART cuando es necesario. \\
+    SIM800L & Plataforma 2G de las primeras pruebas de SMS y comunicación de datos. \\
+    A7670SA & Plataforma celular 4G utilizada en la integración actual de RoadLink. \\
     \shortstack[l]{Alimentación\\celular} & Fuente separada capaz de responder a los picos de consumo del módem. \\
     \shortstack[l]{Alimentación\\lógica} & Fuente para el ESP32 y la electrónica de control. \\
     \bottomrule
@@ -270,11 +253,11 @@ necesitar todavía una conexión al vehículo.
 
 \subsection{Prueba básica de SMS}
 
-La prueba utiliza el modo de texto del módem. El fragmento siguiente muestra la
+La prueba utiliza el modo de texto del módem. El siguiente código muestra la
 secuencia mínima y utiliza nombres simbólicos para los pines y el número de
 destino.
 
-\begin{lstlisting}[style=roadcode,caption={Secuencia mínima para una prueba de SMS.}]
+\begin{lstlisting}[style=roadcode,caption={Código básico para una prueba de SMS.}]
 HardwareSerial modem(1);
 
 void setup() {
@@ -293,8 +276,7 @@ void setup() {
 \end{lstlisting}
 
 Una prueba completa también debe leer las respuestas, confirmar \texttt{OK},
-detectar errores y limitar los tiempos de espera. El fragmento se conserva
-pequeño porque documenta la idea de la prueba, no sustituye al servicio celular.
+detectar errores y limitar los tiempos de espera.
 
 \subsection{Criterios de validación}
 
@@ -311,14 +293,10 @@ pequeño porque documenta la idea de la prueba, no sustituye al servicio celular
 \section{Integración actual con A7670SA}
 
 En la etapa actual, el A7670SA cumple la función de transporte celular de
-RoadLink. El cambio de módem no modifica el origen de la telemetría ni el
-formato recibido por el servidor. El ESP32 continúa entregando comandos y datos
-por UART; el módem establece la sesión de red y envía la solicitud HTTP.
+RoadLink. El cambio de módulo no modifica el formato recibido por el servidor. Sin embargo, este nuevo módulo ofrece mayor ancho de banda y disponibilidad de redes para la conectividad.
 
 El firmware organiza este proceso como una máquina de estados no bloqueante.
 Esto es importante porque una operación celular puede tardar varios segundos.
-Mientras el módem espera registro, conexión o respuesta HTTP, RoadLink continúa
-actualizando CAN, GPS, OBD-II, la interfaz web y la pantalla.
 
 \subsection{Conexión lógica con el firmware}
 
@@ -337,18 +315,10 @@ sim.begin(
     settings.simAccessKey);
 
 void loop() {
-  gps.update();
-  can.update();
-  obd.update();
   sim.update();
-  webUi.update();
 }
 \end{lstlisting}
 
-El nombre histórico de la clase del repositorio corresponde al desarrollo con
-SIM800L. Para la integración con A7670SA se conserva la interfaz del servicio y
-se adapta internamente la secuencia de comandos requerida por el módem. Así,
-GPS, OBD-II, el menú y el receptor no necesitan conocer el modelo celular.
 
 \subsection{Flujo de transmisión}
 
@@ -374,10 +344,6 @@ serial.print(payload);
 startCommand("AT+HTTPACTION=1", httpTimeout);  // POST
 \end{lstlisting}
 
-Las instrucciones AT concretas pueden variar entre familias de módem. Por ello,
-la arquitectura define el resultado esperado ---abrir datos y ejecutar un POST---
-sin afirmar que todos los módulos implementan exactamente los mismos comandos.
-
 \subsection{Formato de la telemetría}
 
 RoadLink transmite una estructura JSON. Los campos no disponibles se envían
@@ -401,21 +367,20 @@ como \texttt{null}; además, GPS y OBD-II pueden habilitarse por separado.
 \end{lstlisting}
 
 La dirección IP, el puerto y la clave se configuran en RoadLink y se conservan
-en memoria no volátil. El receptor valida la clave y registra la telemetría.
+en memoria no volátil. El servidor o la computadora de base valida la clave y registra la telemetría.
 
 \fotomodulo{esp32-a7670sa-montaje-prueba.jpg}{ESP32, alimentación, conversor de nivel y A7670SA utilizados en la integración actual.}{Montaje de integración del A7670SA con RoadLink.}
 
-\section{Alimentación y niveles eléctricos}
+\section{Alimentación eléctrica}\label{sec:alimentacion}
 
-Un módem celular puede producir cambios rápidos de corriente al registrarse o
-transmitir. Una fuente estable en reposo puede sufrir una caída de voltaje
+Un módulo celular puede producir cambios rápidos de corriente al registrarse o
+transmitir. Una fuente inestable en reposo puede sufrir una caída de voltaje
 durante esos eventos y provocar reinicios, pérdida de red o respuestas seriales
 incompletas.
 
 El diseño separa la alimentación celular de la alimentación lógica mediante
 convertidores reductores. Las tierras permanecen unidas para proporcionar una
-referencia común a UART. El conversor bidireccional evita aplicar directamente
-un nivel lógico incompatible entre el ESP32 y el módem.
+referencia común a UART.
 
 Antes de energizar el montaje se debe verificar:
 
@@ -427,29 +392,6 @@ Antes de energizar el montaje se debe verificar:
   \item niveles lógicos permitidos por el hardware utilizado;
   \item conexión de antena antes del registro celular.
 \end{itemize}
-
-\section{Pruebas y evidencias}
-
-\begin{table}[H]
-  \centering
-  \caption{Plan resumido de pruebas.}
-  \begin{tabularx}{\textwidth}{>{\bfseries\raggedright\arraybackslash}p{3.4cm} Y Y}
-    \toprule
-    Prueba & Resultado esperado & Evidencia recomendada \\
-    \midrule
-    Comunicación UART & Respuesta \texttt{OK} a \texttt{AT} & Captura del monitor serial. \\
-    SMS & Recepción del texto generado & Fotografía del mensaje recibido. \\
-    \shortstack[l]{Registro\\celular} & SIM lista, red registrada y señal válida & Registro de comandos. \\
-    Datos HTTP & Respuesta exitosa del receptor & Registro del servidor. \\
-    \shortstack[l]{Carga\\eléctrica} & Sin reinicios durante transmisión & Medición de voltaje. \\
-    Recuperación & Retorno después de pérdida de red & Registro del reintento. \\
-    \bottomrule
-  \end{tabularx}
-\end{table}
-
-En cada prueba se deben anotar fecha, firmware, configuración, carga enviada,
-resultado real y observaciones. Números telefónicos, identificadores de SIM,
-claves y direcciones privadas deben ocultarse antes de publicar evidencias.
 
 \section{Conclusiones}
 
@@ -467,15 +409,5 @@ y la máquina de estados evita que los tiempos celulares detengan RoadLink.
 Las siguientes mejoras documentales serán incorporar fotografías reales,
 resultados medidos y capturas de las pruebas. Estas evidencias permitirán
 relacionar cada decisión de diseño con el prototipo físico.
-
-\section*{Fuentes internas del proyecto}
-\addcontentsline{toc}{section}{Fuentes internas del proyecto}
-
-\begin{itemize}
-  \item \texttt{firmware/RoadLink/RoadLink.ino}: integración de servicios en el ciclo principal.
-  \item \texttt{firmware/RoadLink/Sim800Service.cpp}: estados, AT, JSON y HTTP POST en la rama celular.
-  \item \texttt{firmware/RoadLink/AppConfig.h}: parámetros de UART y tiempos límite.
-  \item \texttt{docs/SIM800L\_TELEMETRY.md}: cableado y procedimiento de prueba.
-\end{itemize}
 
 \end{document}
