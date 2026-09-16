@@ -21,20 +21,21 @@ Los documentos de este directorio tienen como objetivo registrar:
 
 | Subsistema | Documento | Estado |
 | --- | --- | --- |
-| Controlador ESP32 | [Controlador ESP32](modules/controlador-esp32.md) | Borrador inicial |
-| Comunicación celular | [Comunicación celular](modules/comunicacion-celular.md) | Borrador inicial |
-| Interfaz de bus CAN | `modules/interfaz-bus-can.md` | Planeado |
-| GPS | `modules/gps.md` | Planeado |
-| Pantalla TFT y encoder rotatorio | `modules/interfaz-humana.md` | Planeado |
-| PCB, fuentes de alimentación y conexiones | `hardware/pcb-alimentacion-y-conexiones.md` | Planeado |
+| Controlador ESP32 | [Controlador ESP32](modulos/controlador-esp32.md) | Borrador inicial |
+| Comunicación celular | [Comunicación celular](modulos/comunicacion-celular.md) | Borrador inicial |
+| Informe formal del módulo celular | [Fuente LaTeX](informes/modulo-celular/informe-modulo-celular.tex) · [PDF](../../output/pdf/informe-modulo-celular.pdf) | Primera versión |
+| Interfaz de bus CAN | `modulos/interfaz-bus-can.md` | Planeado |
+| GPS | `modulos/gps.md` | Planeado |
+| Pantalla TFT y encoder rotatorio | `modulos/interfaz-humana.md` | Planeado |
+| PCB, fuentes de alimentación y conexiones | `diseno-electronico/pcb-alimentacion-y-conexiones.md` | Planeado |
 | Sistema RoadLink completo | `descripcion-general-roadlink.md` | Planeado para después de los documentos de módulos |
 
 ## Organización del material visual
 
-Las fotografías, diagramas, capturas de pantalla y evidencias de pruebas deben guardarse en `assets/images/`. Los nombres de archivo deben describir el elemento y la etapa de desarrollo, por ejemplo:
+Las fotografías, diagramas, capturas de pantalla y evidencias de pruebas deben guardarse en `recursos/imagenes/`. Los nombres de archivo deben describir el elemento y la etapa de desarrollo, por ejemplo:
 
 ```text
-assets/images/
+recursos/imagenes/
 ├── esp32-sim800l-montaje-prueba.jpg
 ├── sim800l-resultado-prueba-sms.jpg
 ├── sim800l-montaje-prueba-tcp.jpg
@@ -60,4 +61,3 @@ Los primeros borradores evitan intencionalmente inventar detalles que todavía n
 - la razón por la que se reemplazó el SIM800L con el A7670SA;
 - la configuración del operador, la tarjeta SIM, la antena y la red utilizada durante las pruebas;
 - los resultados actuales de las pruebas del A7670SA y su estado de integración final.
-
