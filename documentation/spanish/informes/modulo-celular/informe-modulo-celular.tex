@@ -251,6 +251,8 @@ RoadLink. El ESP32 generaba valores simulados, preparaba un mensaje y controlaba
 el módem mediante comandos AT. Esta configuración demostró la capacidad M2M sin
 necesitar todavía una conexión al vehículo.
 
+\fotomodulo{sim800l-modulo.jpg}{Módulo SIM800L utilizado en las primeras pruebas del proyecto.}{Módulo SIM800L utilizado durante la primera etapa de desarrollo.}
+
 \subsection{Prueba básica de SMS}
 
 La prueba utiliza el modo de texto del módem. El siguiente código muestra la
@@ -294,6 +296,8 @@ detectar errores y limitar los tiempos de espera.
 
 En la etapa actual, el A7670SA cumple la función de transporte celular de
 RoadLink. El cambio de módulo no modifica el formato recibido por el servidor. Sin embargo, este nuevo módulo ofrece mayor ancho de banda y disponibilidad de redes para la conectividad.
+
+\fotomodulo{a7670sa-modulo.jpg}{Módulo A7670SA utilizado en la integración actual.}{Módulo A7670SA utilizado durante la etapa actual de desarrollo.}
 
 El firmware organiza este proceso como una máquina de estados no bloqueante.
 Esto es importante porque una operación celular puede tardar varios segundos.
@@ -406,8 +410,8 @@ receptor remoto. UART y los comandos AT mantienen una interfaz comprensible;
 HTTP POST y JSON proporcionan un formato sencillo para transportar telemetría;
 y la máquina de estados evita que los tiempos celulares detengan RoadLink.
 
-Las siguientes mejoras documentales serán incorporar fotografías reales,
-resultados medidos y capturas de las pruebas. Estas evidencias permitirán
+Las siguientes mejoras documentales serán incorporar la fotografía individual
+pendiente del A7670SA, resultados medidos y capturas de las pruebas. Estas evidencias permitirán
 relacionar cada decisión de diseño con el prototipo físico.
 
 \end{document}
