@@ -71,17 +71,22 @@
   keepspaces=true
 }
 
-\newcommand{\fotopendiente}[2]{%
+\newcommand{\rutaimagenes}{../../recursos/imagenes/}
+\newcommand{\fotomodulo}[3]{%
   \begin{figure}[H]
     \centering
-    \fcolorbox{RoadTeal}{RoadLight}{%
-      \begin{minipage}[c][5.0cm][c]{0.82\textwidth}
-        \centering
-        {\Large\sffamily\bfseries\color{RoadGreen} Fotografía pendiente}\par\vspace{0.5em}
-        {\sffamily #1}\par\vspace{0.45em}
-        {\small\color{RoadGray} Sustituir este espacio cuando se proporcione la imagen.}
-      \end{minipage}}
-    \caption{#2}
+    \IfFileExists{\rutaimagenes#1}{%
+      \includegraphics[width=0.82\textwidth,height=7cm,keepaspectratio]{\rutaimagenes#1}%
+    }{%
+      \fcolorbox{RoadTeal}{RoadLight}{%
+        \begin{minipage}[c][5.0cm][c]{0.82\textwidth}
+          \centering
+          {\Large\sffamily\bfseries\color{RoadGreen} Fotografía pendiente}\par\vspace{0.45em}
+          {\sffamily #2}\par\vspace{0.55em}
+          {\small\sffamily Archivo requerido: \texttt{\detokenize{#1}}}
+        \end{minipage}}%
+    }
+    \caption{#3}
   \end{figure}
 }
 
@@ -106,7 +111,7 @@
     \begin{tabular}{>{\sffamily\bfseries}r >{\sffamily}l}
       Autor: & Roderic David Munguia Calvillo \\
       Proyecto: & RoadLink \\
-      Fecha: & 15 de septiembre de 2026 \\
+      Fecha: & 16 de septiembre de 2026 \\
     \end{tabular}
     \vfill
     \begin{minipage}{0.82\textwidth}
@@ -301,7 +306,7 @@ pequeño porque documenta la idea de la prueba, no sustituye al servicio celular
   \item El monitor serial conserva el intercambio como evidencia.
 \end{enumerate}
 
-\fotopendiente{ESP32, fuente de alimentación y SIM800L utilizados en la prueba inicial.}{Montaje de la primera prueba M2M con SIM800L.}
+\fotomodulo{esp32-sim800l-montaje-prueba.jpg}{ESP32, fuente de alimentación y SIM800L utilizados en la prueba inicial.}{Montaje de la primera prueba M2M con SIM800L.}
 
 \section{Integración actual con A7670SA}
 
@@ -398,7 +403,7 @@ como \texttt{null}; además, GPS y OBD-II pueden habilitarse por separado.
 La dirección IP, el puerto y la clave se configuran en RoadLink y se conservan
 en memoria no volátil. El receptor valida la clave y registra la telemetría.
 
-\fotopendiente{ESP32, alimentación, conversor de nivel y A7670SA utilizados en la integración actual.}{Montaje de integración del A7670SA con RoadLink.}
+\fotomodulo{esp32-a7670sa-montaje-prueba.jpg}{ESP32, alimentación, conversor de nivel y A7670SA utilizados en la integración actual.}{Montaje de integración del A7670SA con RoadLink.}
 
 \section{Alimentación y niveles eléctricos}
 
