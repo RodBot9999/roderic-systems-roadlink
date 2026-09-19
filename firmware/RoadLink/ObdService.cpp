@@ -48,7 +48,20 @@ uint16_t ObdService::pollInterval() const {
   return pollIntervalMs_;
 }
 
+void ObdService::setLivePidMask(uint16_t mask) {
+  livePidMask_ = mask & StreamField::ALL;
+  if (livePidIndex_ >= LIVE_PID_COUNT) livePidIndex_ = 0;
+}
+
+uint16_t ObdService::livePidMask() const {
+  return livePidMask_;
+}
+
 bool ObdService::prepareRequest(const char* label) {
+  // A manual diagnostic operation temporarily takes over the request engine.
+  // The streaming controller resumes selected polling when it finishes.
+  livePollingEnabled_ = false;
+  liveOneShotActive_ = false;
   if (!can_.initialized()) {
     finishOperation(ObdResult::CanOffline, String(label) + ": CAN offline");
     return false;
@@ -450,6 +463,21 @@ void ObdService::updateLivePolling() {
   }
 
   if (millis() - lastLiveRequestMs_ < pollIntervalMs_) return;
+
+  if (livePollingEnabled_ && livePidMask_ == 0) {
+    statusMessage_ = "Live polling paused: no fields selected";
+    return;
+  }
+
+  if (!liveOneShotActive_) {
+    uint8_t attempts = 0;
+    while (attempts < LIVE_PID_COUNT &&
+        (livePidMask_ & (1U << livePidIndex_)) == 0) {
+      livePidIndex_ = (livePidIndex_ + 1) % LIVE_PID_COUNT;
+      attempts++;
+    }
+    if (attempts >= LIVE_PID_COUNT) return;
+  }
 
   const uint8_t pid = LIVE_PIDS[livePidIndex_];
   if (sendRequest(0x01, pid, activeRequestId())) {

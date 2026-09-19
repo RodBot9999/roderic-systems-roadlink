@@ -1,12 +1,11 @@
 #include <Arduino.h>
 
-// RoadLink SIM800L wiring, named from the ESP32 point of view.
-constexpr uint8_t SIM_RX_PIN = 17;  // ESP32 RX  <- SIM800L TX
-constexpr uint8_t SIM_TX_PIN = 16;  // ESP32 TX  -> SIM800L RX
-constexpr uint8_t SIM_RST_PIN = 2;  // Active-low SIM800L reset
+// RoadLink A7670SA wiring, named from the ESP32 point of view.
+constexpr uint8_t MODEM_RX_PIN = 17;  // ESP32 RX  <- A7670SA TX
+constexpr uint8_t MODEM_TX_PIN = 16;  // ESP32 TX  -> A7670SA RX
 constexpr uint32_t USB_BAUD = 115200;
 
-HardwareSerial sim800(1);
+HardwareSerial modem(1);
 
 const uint32_t BAUD_RATES[] = {
     115200,
@@ -25,42 +24,22 @@ uint32_t activeBaud = 115200;
 String usbCommand;
 
 void discardModemInput() {
-  while (sim800.available()) {
-    sim800.read();
+  while (modem.available()) {
+    modem.read();
   }
 }
 
 void startModemUart(uint32_t baud) {
-  sim800.end();
+  modem.end();
   delay(50);
 
   // A disconnected UART RX must remain at the idle HIGH level.
-  pinMode(SIM_RX_PIN, INPUT_PULLUP);
-  sim800.setRxBufferSize(1024);
-  sim800.begin(baud, SERIAL_8N1, SIM_RX_PIN, SIM_TX_PIN);
+  pinMode(MODEM_RX_PIN, INPUT_PULLUP);
+  modem.setRxBufferSize(1024);
+  modem.begin(baud, SERIAL_8N1, MODEM_RX_PIN, MODEM_TX_PIN);
   activeBaud = baud;
   delay(80);
   discardModemInput();
-}
-
-void resetModem() {
-  Serial.println(F("\r\n[RESET] Pulsing GPIO2 LOW for 200 ms..."));
-  pinMode(SIM_RST_PIN, OUTPUT);
-  digitalWrite(SIM_RST_PIN, HIGH);
-  delay(100);
-  digitalWrite(SIM_RST_PIN, LOW);
-  delay(200);
-  digitalWrite(SIM_RST_PIN, LOW);
-  Serial.println(F("[RESET] Released. Waiting 3 seconds for UART boot output."));
-
-  const uint32_t deadline = millis() + 3000;
-  while (static_cast<int32_t>(deadline - millis()) > 0) {
-    while (sim800.available()) {
-      Serial.write(sim800.read());
-    }
-    delay(1);
-  }
-  Serial.println();
 }
 
 String collectResponse(uint32_t timeoutMs) {
@@ -69,8 +48,8 @@ String collectResponse(uint32_t timeoutMs) {
   const uint32_t startedMs = millis();
 
   while (millis() - startedMs < timeoutMs) {
-    while (sim800.available()) {
-      const char value = static_cast<char>(sim800.read());
+    while (modem.available()) {
+      const char value = static_cast<char>(modem.read());
       if (response.length() < 512) {
         response += value;
       }
@@ -93,7 +72,7 @@ bool probeBaud(uint32_t baud) {
 
   for (uint8_t attempt = 0; attempt < 3; ++attempt) {
     discardModemInput();
-    sim800.print(F("AT\r"));
+    modem.print(F("AT\r"));
     const String response = collectResponse(700);
 
     if (response.indexOf("OK") >= 0) {
@@ -109,16 +88,16 @@ bool probeBaud(uint32_t baud) {
 }
 
 bool scanBaudRates() {
-  Serial.println(F("\r\n========== SIM800L BAUD SCAN =========="));
+  Serial.println(F("\r\n========== A7670SA BAUD SCAN =========="));
   Serial.println(F("Sending AT three times at each common baud rate..."));
 
   for (size_t index = 0; index < BAUD_RATE_COUNT; ++index) {
     if (probeBaud(BAUD_RATES[index])) {
       Serial.printf(
-          "\r\n[FOUND] SIM800L responded at %lu baud.\r\n",
+          "\r\n[FOUND] A7670SA responded at %lu baud.\r\n",
           static_cast<unsigned long>(activeBaud));
       Serial.println(F("Terminal mode is now active at that baud."));
-      Serial.println(F("Try: ATI, AT+IPR?, AT+CPIN?, AT+CSQ, AT+CREG?"));
+      Serial.println(F("Try: ATI, AT+IPR?, AT+CPIN?, AT+CSQ, AT+CEREG?"));
       return true;
     }
   }
@@ -136,10 +115,9 @@ void printHelp() {
   Serial.println(F("\r\nLocal terminal commands:"));
   Serial.println(F("  /scan          Scan all common modem baud rates"));
   Serial.println(F("  /baud 115200   Select a baud rate manually"));
-  Serial.println(F("  /reset         Pulse the SIM800L RST input"));
   Serial.println(F("  /help          Show this help"));
-  Serial.println(F("\r\nAnything else is sent to the SIM800L with a CR ending."));
-  Serial.println(F("Recommended first commands: AT, ATI, AT+IPR?, AT+CPIN?"));
+  Serial.println(F("\r\nAnything else is sent to the A7670SA with a CR ending."));
+  Serial.println(F("Recommended: AT, ATI, AT+CPIN?, AT+CEREG?, AT+CSQ"));
 }
 
 void processUsbCommand(String command) {
@@ -148,11 +126,6 @@ void processUsbCommand(String command) {
 
   if (command.equalsIgnoreCase("/scan")) {
     scanBaudRates();
-    return;
-  }
-
-  if (command.equalsIgnoreCase("/reset")) {
-    resetModem();
     return;
   }
 
@@ -178,8 +151,8 @@ void processUsbCommand(String command) {
   Serial.printf("[TX %lu] %s\r\n",
                 static_cast<unsigned long>(activeBaud),
                 command.c_str());
-  sim800.print(command);
-  sim800.print('\r');
+  modem.print(command);
+  modem.print('\r');
 }
 
 void setup() {
@@ -188,25 +161,22 @@ void setup() {
   delay(1200);
 
   Serial.println(F("\r\n========================================"));
-  Serial.println(F("RoadLink SIM800L Baud Scanner + Terminal"));
-  Serial.println(F("ESP32 RX=GPIO17, TX=GPIO16, RST=GPIO2"));
+  Serial.println(F("RoadLink A7670SA Baud Scanner + Terminal"));
+  Serial.println(F("ESP32 RX=GPIO17, TX=GPIO16 (UART only)"));
   Serial.println(F("USB Serial Monitor=115200 baud"));
   Serial.println(F("========================================"));
 
-  pinMode(SIM_RX_PIN, INPUT_PULLUP);
-  pinMode(SIM_RST_PIN, OUTPUT);
-  digitalWrite(SIM_RST_PIN, HIGH);
+  pinMode(MODEM_RX_PIN, INPUT_PULLUP);
 
   startModemUart(115200);
-  resetModem();
   scanBaudRates();
   printHelp();
   Serial.println(F("\r\nType AT and press Enter."));
 }
 
 void loop() {
-  while (sim800.available()) {
-    Serial.write(sim800.read());
+  while (modem.available()) {
+    Serial.write(modem.read());
   }
 
   while (Serial.available()) {

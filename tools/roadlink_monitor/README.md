@@ -1,6 +1,6 @@
 # RoadLink Desktop Telemetry Monitor
 
-The Windows monitor receives authenticated SIM800L telemetry, displays live GPS
+The Windows monitor receives authenticated A7670SA telemetry, displays live GPS
 and OBD-II values, and logs accepted packets as JSONL.
 
 ## Normal use

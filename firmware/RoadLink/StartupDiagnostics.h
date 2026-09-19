@@ -48,6 +48,16 @@ public:
       int32_t secondaryCode = 0,
       bool warning = false)
   {
+    Serial.print(warning ? F("[WARN][") : F("[ERROR]["));
+    Serial.print(moduleName(module));
+    Serial.print(F("] "));
+    Serial.print(summary);
+    Serial.print(F(" ("));
+    Serial.print(primaryCode);
+    Serial.print(F(", "));
+    Serial.print(secondaryCode);
+    Serial.println(')');
+
     // Update an existing error instead of duplicating it.
     for (uint8_t i = 0; i < errorCount_; ++i) {
       if (errors_[i].module == module) {

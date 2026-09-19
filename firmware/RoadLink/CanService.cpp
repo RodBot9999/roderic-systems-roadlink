@@ -140,9 +140,6 @@ bool CanService::sendFrame(
       lastTransmittedFrame_.data[index] = buffer[index];
     }
 
-    if (serialStreaming_) {
-      printFrameToSerial(lastTransmittedFrame_, true);
-    }
   } else {
     statistics_.transmitErrors++;
   }
@@ -176,9 +173,6 @@ void CanService::processFrame(uint32_t rawId, uint8_t dlc, const uint8_t* data) 
   trackIdentifier(frame);
   queueDiagnosticFrame(frame);
 
-  if (serialStreaming_) {
-    printFrameToSerial(frame, false);
-  }
 }
 
 void CanService::trackIdentifier(const CanFrameSnapshot& frame) {
@@ -258,28 +252,6 @@ void CanService::updateRateCounter() {
   }
 }
 
-void CanService::printFrameToSerial(
-    const CanFrameSnapshot& frame,
-    bool transmitted) const {
-  Serial.print(transmitted ? F("TX ") : F("RX "));
-  Serial.print(frame.extended ? F("EXT 0x") : F("STD 0x"));
-  Serial.print(frame.id, HEX);
-  Serial.print(F(" DLC:"));
-  Serial.print(frame.dlc);
-  Serial.print(F(" DATA:"));
-
-  if (frame.remote) {
-    Serial.print(F(" RTR"));
-  } else {
-    for (uint8_t index = 0; index < frame.dlc; ++index) {
-      Serial.print(' ');
-      if (frame.data[index] < 0x10) Serial.print('0');
-      Serial.print(frame.data[index], HEX);
-    }
-  }
-  Serial.println();
-}
-
 void CanService::clearStatistics() {
   statistics_ = CanStatistics{};
   lastFrame_ = CanFrameSnapshot{};
@@ -294,10 +266,6 @@ void CanService::clearStatistics() {
   diagnosticQueueCount_ = 0;
   framesInWindow_ = 0;
   rateWindowStartMs_ = millis();
-}
-
-void CanService::setSerialStreaming(bool enabled) {
-  serialStreaming_ = enabled;
 }
 
 bool CanService::initialized() const { return initialized_; }

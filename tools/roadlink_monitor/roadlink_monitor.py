@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""RoadLink SIM800L telemetry receiver and desktop monitor."""
+"""RoadLink A7670SA telemetry receiver and desktop monitor."""
 
 from __future__ import annotations
 

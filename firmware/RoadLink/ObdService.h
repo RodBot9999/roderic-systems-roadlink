@@ -88,6 +88,8 @@ public:
 
   void setPollInterval(uint16_t intervalMs);
   uint16_t pollInterval() const;
+  void setLivePidMask(uint16_t mask);
+  uint16_t livePidMask() const;
 
   bool startDiscovery();
   bool startSupportedPidScan();
@@ -169,6 +171,7 @@ private:
   CanService& can_;
 
   uint16_t pollIntervalMs_ = AppConfig::OBD_POLL_DEFAULT_MS;
+  uint16_t livePidMask_ = StreamField::DEFAULT_MASK;
   bool livePollingEnabled_ = false;
   bool liveOneShotActive_ = false;
   uint8_t livePidIndex_ = 0;

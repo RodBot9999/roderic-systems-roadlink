@@ -42,8 +42,7 @@ public:
 
 private:
   static constexpr uint8_t MENU_VISIBLE_ROWS = 6;
-  static constexpr uint8_t DETAIL_FIELDS_PER_PAGE = 10;
-  static constexpr uint32_t DETAIL_PAGE_INTERVAL_MS = 2600;
+  static constexpr uint8_t DETAIL_FIELDS_PER_PAGE = UI_DETAIL_FIELDS_PER_PAGE;
 
   void drawPackedSplash();
   void renderFrame(const UiFrame& frame, bool fullRedraw);
@@ -51,6 +50,15 @@ private:
   void drawHeader(const UiFrame& frame);
   void drawFooter(const UiFrame& frame);
   void drawMenu(const UiFrame& frame);
+  void drawTiles(const UiFrame& frame);
+  void drawTile(
+      int16_t x,
+      int16_t y,
+      int16_t width,
+      int16_t height,
+      const UiItem& item,
+      bool selected);
+  void drawIcon(UiIcon icon, int16_t x, int16_t y, uint16_t color, UiTone tone);
   void drawDetail(const UiFrame& frame);
   void drawAlert(const UiFrame& frame);
   void updateMenuPartial(const UiFrame& frame);
@@ -72,6 +80,8 @@ private:
   String clippedText(const String& value, uint8_t maxChars) const;
   uint16_t statusColor(const String& value) const;
   uint16_t bootStateColor(BootCheckState state) const;
+  uint16_t toneColor(UiTone tone) const;
+  uint16_t toneBackground(UiTone tone) const;
   bool sameScreenIdentity(const UiFrame& left, const UiFrame& right) const;
   uint8_t detailPage(const UiFrame& frame) const;
   uint8_t menuStart(const UiFrame& frame) const;
@@ -84,6 +94,5 @@ private:
   bool hasCachedFrame_ = false;
   UiFrame cachedFrame_;
   uint32_t renderedRevision_ = UINT32_MAX;
-  uint32_t screenStartedMs_ = 0;
   uint8_t renderedDetailPage_ = 0xFF;
 };
