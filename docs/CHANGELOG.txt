@@ -1,7 +1,46 @@
 RODERIC SYSTEMS CAN DIAGNOSTICS V3-TFT
 CHANGELOG / IMPLEMENTATION MAP
 Generated: 2026-07-17
-Updated: 2026-07-24
+Updated: 2026-09-18
+
+WARM MODEM ENABLE, EXPLICIT START/STOP, AND REBOOT
+------------------------------------------------
+- Recheck the powered A7670SA radio/operator/registration/attach/PDP/APN state
+  on enable instead of blindly repeating LTE bearer activation.
+- Drain stale UART replies, query LTE registration unambiguously, treat normal
+  searching as waiting, and attempt automatic operator recovery once per outage.
+- Reuse active LTE default bearer; do not force CGACT=1,1 or write placeholder APN.
+- Ignore legacy persisted auto-send: boot/re-enable/reconnect remain status-only.
+- Added green START / red STOP; only START enables periodic/manual HTTP posts.
+- Safely settle pending AT commands and HTTPDATA input on pause/stop/reboot.
+- Added confirmed main-menu Reboot: UART AT+CRESET then ESP32 restart, with
+  bounded fallback for an absent modem; saved endpoint settings remain.
+- Exposed radio/operator/LTE status and actual APN in manual status pages.
+
+ROTARY MENU AND MODEM DIAGNOSTICS
+---------------------------------
+- Replaced timed TFT detail pagination with rotary-controlled manual pages.
+- Reworked receiver IP, port, and access-key editing into separate digit-select
+  and digit-change modes with explicit save and cancel actions.
+- Added validation for IPv4 octets and TCP ports instead of silently wrapping or
+  clamping invalid values.
+- Added an A7670SA failure-details page that preserves the latest failed stage,
+  failure type, AT command, response, retry target, age, count, and suggested
+  troubleshooting check after the modem recovers.
+
+A7670SA LTE MODEM MIGRATION
+---------------------------
+- Replaced the SIM800L-specific service with a non-blocking A7670Service.
+- Kept the confirmed UART wiring: GPIO16 -> modem RX and GPIO17 <- modem TX at
+  115200 baud.
+- Removed all firmware control of reset, sleep/DTR, and PWRKEY; the installed
+  board uses only power, ground, TX, and RX.
+- Replaced GSM registration and SAPBR bearer commands with LTE/EPS registration
+  (CEREG), PDP context/APN configuration (CGDCONT/CGAUTH), context activation
+  (CGACT), and address query (CGPADDR).
+- Removed the SIM800L HTTP CID parameter and retained the A76XX HTTP POST flow.
+- Updated startup diagnostics, cellular screens, wiring documentation, and the
+  standalone UART baud scanner/AT terminal for the A7670SA.
 
 STARTUP FREEZE HARDENING
 ------------------------

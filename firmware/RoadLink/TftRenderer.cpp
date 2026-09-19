@@ -23,6 +23,8 @@ constexpr uint16_t COLOR_GREEN = 0x07E0;
 constexpr uint16_t COLOR_AMBER = 0xFD20;
 constexpr uint16_t COLOR_RED = 0xF800;
 constexpr uint16_t COLOR_DARK_RED = 0x5000;
+constexpr uint16_t COLOR_DARK_GREEN = 0x0204;
+constexpr uint16_t COLOR_DARK_AMBER = 0x30E0;
 
 constexpr uint8_t BOOT_MAX_ROWS = 6;
 }
@@ -98,9 +100,9 @@ void TftRenderer::setSystemCheck(
     BootCheckState state) {
   if (!initialized_ || row >= BOOT_MAX_ROWS) return;
 
-  const int16_t y = 51 + static_cast<int16_t>(row) * 24;
-  tft_.fillRect(8, y, 304, 20, COLOR_BG);
-  tft_.drawFastHLine(8, y + 19, 304, COLOR_PANEL_ALT);
+  const int16_t y = 44 + static_cast<int16_t>(row) * 22;
+  tft_.fillRect(8, y, 304, 19, COLOR_BG);
+  tft_.drawFastHLine(8, y + 18, 304, COLOR_PANEL_ALT);
 
   tft_.setTextSize(1);
   tft_.setTextColor(COLOR_CYAN, COLOR_BG);
@@ -144,9 +146,6 @@ void TftRenderer::update(bool force) {
   if (!force && revision == renderedRevision_ && !pageChanged) return;
 
   const bool identityChanged = !hasCachedFrame_ || !sameScreenIdentity(cachedFrame_, frame);
-  if (identityChanged) {
-    screenStartedMs_ = millis();
-  }
 
   renderFrame(frame, force || identityChanged || pageChanged);
   cachedFrame_ = frame;
@@ -180,6 +179,8 @@ void TftRenderer::renderFrame(const UiFrame& frame, bool fullRedraw) {
 
     if (frame.layout == UiLayout::Menu) {
       drawMenu(frame);
+    } else if (frame.layout == UiLayout::Tiles) {
+      drawTiles(frame);
     } else if (frame.layout == UiLayout::Alert) {
       drawAlert(frame);
     } else {
@@ -195,6 +196,9 @@ void TftRenderer::renderFrame(const UiFrame& frame, bool fullRedraw) {
 
     if (frame.layout == UiLayout::Menu) {
       updateMenuPartial(frame);
+    } else if (frame.layout == UiLayout::Tiles) {
+      tft_.fillRect(4, CONTENT_Y + 1, SCREEN_WIDTH - 8, CONTENT_HEIGHT - 2, COLOR_BG);
+      drawTiles(frame);
     } else if (frame.layout == UiLayout::Alert) {
       tft_.fillRect(0, CONTENT_Y, SCREEN_WIDTH, CONTENT_HEIGHT, COLOR_BG);
       tft_.drawRect(3, CONTENT_Y, SCREEN_WIDTH - 6, CONTENT_HEIGHT, COLOR_CYAN_DARK);
@@ -232,7 +236,8 @@ void TftRenderer::drawHeader(const UiFrame& frame) {
 
   const String right = frame.layout == UiLayout::Menu
       ? "MENU"
-      : (frame.layout == UiLayout::Alert ? "ALERT" : "DATA");
+      : (frame.layout == UiLayout::Tiles ? "SELECT"
+      : (frame.layout == UiLayout::Alert ? "ALERT" : "DATA"));
   tft_.setTextColor(frame.layout == UiLayout::Alert ? COLOR_RED : COLOR_MUTED, COLOR_BG);
   tft_.setCursor(282, 25);
   tft_.print(right);
@@ -249,10 +254,33 @@ void TftRenderer::drawFooter(const UiFrame& frame) {
   tft_.drawFastHLine(0, FOOTER_Y, SCREEN_WIDTH, COLOR_CYAN_DARK);
   tft_.setTextSize(1);
 
-  if (frame.layout != UiLayout::Menu && frame.itemCount > 0) {
+  const uint8_t detailPageCount = frame.fieldCount == 0
+      ? 1
+      : static_cast<uint8_t>(
+          (frame.fieldCount + DETAIL_FIELDS_PER_PAGE - 1) /
+          DETAIL_FIELDS_PER_PAGE);
+
+  if (frame.layout == UiLayout::Tiles) {
+    tft_.setTextColor(COLOR_MUTED, COLOR_BG);
+    tft_.setCursor(7, FOOTER_Y + 8);
+    tft_.print(frame.canGoBack ? F("HOLD: BACK") : F("ROTATE: NAVIGATE"));
+    tft_.setTextColor(COLOR_CYAN, COLOR_BG);
+    tft_.setCursor(211, FOOTER_Y + 8);
+    tft_.print(F("PRESS: SELECT"));
+  } else if (frame.layout != UiLayout::Menu &&
+      detailPageCount > 1 &&
+      frame.itemCount <= 1) {
+    tft_.setTextColor(COLOR_MUTED, COLOR_BG);
+    tft_.setCursor(7, FOOTER_Y + 8);
+    tft_.print(F("ROTATE: PAGE"));
+    tft_.setTextColor(COLOR_CYAN, COLOR_BG);
+    tft_.setCursor(232, FOOTER_Y + 8);
+    tft_.print(F("PRESS: BACK"));
+  } else if (frame.layout != UiLayout::Menu && frame.itemCount > 0) {
     const uint8_t selected = frame.selectedIndex < frame.itemCount ? frame.selectedIndex : 0;
     const UiItem& item = frame.items[selected];
-    const uint16_t color = item.destructive ? COLOR_RED : COLOR_CYAN;
+    const uint16_t color = item.destructive ? COLOR_RED
+        : (item.positive ? COLOR_GREEN : COLOR_CYAN);
     tft_.setTextColor(color, COLOR_BG);
     tft_.setCursor(7, FOOTER_Y + 8);
     tft_.print(frame.itemCount > 1 ? F("< ") : F("> "));
@@ -457,16 +485,18 @@ void TftRenderer::drawMenuRow(
     bool selected,
     uint8_t absoluteIndex) {
   const uint16_t background = selected ? COLOR_CYAN_DARK : COLOR_PANEL;
-  const uint16_t border = item.destructive ? COLOR_RED : (selected ? COLOR_CYAN : COLOR_PANEL_ALT);
+  const uint16_t border = item.destructive ? COLOR_RED
+      : (item.positive ? COLOR_GREEN : (selected ? COLOR_CYAN : COLOR_PANEL_ALT));
   const uint16_t text = !item.enabled
       ? COLOR_MUTED
-      : (item.destructive ? COLOR_RED : COLOR_WHITE);
+      : (item.destructive ? COLOR_RED : (item.positive ? COLOR_GREEN : COLOR_WHITE));
 
   tft_.fillRect(7, y, 298, 23, background);
   tft_.drawRect(7, y, 298, 23, border);
 
   if (selected) {
-    tft_.fillRect(7, y, 4, 23, item.destructive ? COLOR_RED : COLOR_CYAN);
+    tft_.fillRect(7, y, 4, 23, item.destructive ? COLOR_RED
+        : (item.positive ? COLOR_GREEN : COLOR_CYAN));
   }
 
   tft_.setTextSize(1);
@@ -560,6 +590,26 @@ uint16_t TftRenderer::bootStateColor(BootCheckState state) const {
   return COLOR_MUTED;
 }
 
+uint16_t TftRenderer::toneColor(UiTone tone) const {
+  switch (tone) {
+    case UiTone::On:          return COLOR_GREEN;
+    case UiTone::Off:         return COLOR_RED;
+    case UiTone::Partial:     return COLOR_AMBER;
+    case UiTone::Unavailable: return COLOR_MUTED;
+    case UiTone::Neutral:     return COLOR_CYAN;
+  }
+  return COLOR_CYAN;
+}
+
+uint16_t TftRenderer::toneBackground(UiTone tone) const {
+  switch (tone) {
+    case UiTone::On:      return COLOR_DARK_GREEN;
+    case UiTone::Off:     return COLOR_DARK_RED;
+    case UiTone::Partial: return COLOR_DARK_AMBER;
+    default:              return COLOR_PANEL;
+  }
+}
+
 bool TftRenderer::sameScreenIdentity(const UiFrame& left, const UiFrame& right) const {
   return left.layout == right.layout &&
       left.title == right.title &&
@@ -569,14 +619,150 @@ bool TftRenderer::sameScreenIdentity(const UiFrame& left, const UiFrame& right) 
 }
 
 uint8_t TftRenderer::detailPage(const UiFrame& frame) const {
-  if (frame.layout == UiLayout::Menu || frame.fieldCount <= DETAIL_FIELDS_PER_PAGE) {
+  if (frame.layout == UiLayout::Menu || frame.layout == UiLayout::Tiles ||
+      frame.fieldCount <= DETAIL_FIELDS_PER_PAGE) {
     return 0;
   }
 
   const uint8_t pageCount = static_cast<uint8_t>(
       (frame.fieldCount + DETAIL_FIELDS_PER_PAGE - 1) / DETAIL_FIELDS_PER_PAGE);
   if (pageCount <= 1) return 0;
-  return static_cast<uint8_t>(((millis() - screenStartedMs_) / DETAIL_PAGE_INTERVAL_MS) % pageCount);
+  return frame.detailPage < pageCount ? frame.detailPage : pageCount - 1;
+}
+
+void TftRenderer::drawTiles(const UiFrame& frame) {
+  for (uint8_t index = 0; index < frame.itemCount && index < 4; ++index) {
+    const int16_t column = index & 1;
+    const int16_t row = index >> 1;
+    drawTile(
+        7 + column * 154,
+        CONTENT_Y + 5 + row * 80,
+        150,
+        76,
+        frame.items[index],
+        index == frame.selectedIndex);
+  }
+}
+
+void TftRenderer::drawTile(
+    int16_t x,
+    int16_t y,
+    int16_t width,
+    int16_t height,
+    const UiItem& item,
+    bool selected) {
+  const uint16_t background = toneBackground(item.tone);
+  const uint16_t accent = item.enabled ? toneColor(item.tone) : COLOR_MUTED;
+  tft_.fillRect(x, y, width, height, background);
+  tft_.drawRect(x, y, width, height, selected ? COLOR_CYAN : COLOR_PANEL_ALT);
+  if (selected) {
+    tft_.drawRect(x + 1, y + 1, width - 2, height - 2, COLOR_CYAN_DARK);
+    tft_.fillRect(x, y, 4, height, COLOR_CYAN);
+  }
+
+  drawIcon(item.icon, x + width / 2 - 12, y + 7, accent, item.tone);
+  tft_.setTextSize(1);
+  tft_.setTextColor(item.enabled ? COLOR_WHITE : COLOR_MUTED, background);
+  const String label = clippedText(item.label, 20);
+  tft_.setCursor(x + (width - label.length() * 6) / 2, y + 39);
+  tft_.print(label);
+  if (item.value.length()) {
+    const String value = clippedText(item.value, 20);
+    tft_.setTextColor(accent, background);
+    tft_.setCursor(x + (width - value.length() * 6) / 2, y + 56);
+    tft_.print(value);
+  }
+}
+
+void TftRenderer::drawIcon(
+    UiIcon icon,
+    int16_t x,
+    int16_t y,
+    uint16_t color,
+    UiTone tone) {
+  const int16_t cx = x + 12;
+  const int16_t cy = y + 12;
+  switch (icon) {
+    case UiIcon::StartStop:
+      if (tone == UiTone::Off) tft_.fillRect(x + 5, y + 5, 14, 14, color);
+      else tft_.fillTriangle(x + 6, y + 3, x + 6, y + 21, x + 21, cy, color);
+      break;
+    case UiIcon::Clock:
+    case UiIcon::Timing:
+      tft_.drawCircle(cx, cy, 10, color);
+      tft_.drawLine(cx, cy, cx, y + 5, color);
+      tft_.drawLine(cx, cy, x + 18, y + 15, color);
+      break;
+    case UiIcon::Sources:
+      tft_.drawRect(x + 2, y + 3, 8, 8, color);
+      tft_.drawRect(x + 14, y + 3, 8, 8, color);
+      tft_.drawRect(x + 8, y + 15, 8, 8, color);
+      tft_.drawLine(x + 6, y + 11, x + 11, y + 15, color);
+      tft_.drawLine(x + 18, y + 11, x + 13, y + 15, color);
+      break;
+    case UiIcon::Status:
+      tft_.drawCircle(cx, cy, 10, color);
+      tft_.fillCircle(cx, y + 7, 1, color);
+      tft_.drawFastVLine(cx, y + 11, 8, color);
+      break;
+    case UiIcon::Gps:
+      tft_.drawCircle(cx, y + 9, 6, color);
+      tft_.drawLine(x + 8, y + 13, cx, y + 22, color);
+      tft_.drawLine(x + 16, y + 13, cx, y + 22, color);
+      tft_.fillCircle(cx, y + 9, 2, color);
+      break;
+    case UiIcon::Obd:
+      tft_.drawRect(x + 3, y + 7, 18, 11, color);
+      tft_.drawLine(x + 6, y + 7, x + 8, y + 3, color);
+      tft_.drawLine(x + 18, y + 7, x + 16, y + 3, color);
+      tft_.fillCircle(x + 7, y + 19, 2, color);
+      tft_.fillCircle(x + 17, y + 19, 2, color);
+      break;
+    case UiIcon::Engine:
+      tft_.drawRect(x + 4, y + 6, 15, 13, color);
+      tft_.drawFastHLine(x + 8, y + 3, 8, color);
+      tft_.drawLine(x + 19, y + 10, x + 23, y + 8, color);
+      tft_.drawLine(x + 4, y + 11, x + 1, y + 11, color);
+      break;
+    case UiIcon::Coolant:
+      tft_.drawRoundRect(x + 9, y + 2, 6, 16, 3, color);
+      tft_.fillCircle(cx, y + 19, 4, color);
+      tft_.drawFastVLine(cx, y + 6, 11, color);
+      break;
+    case UiIcon::Throttle:
+      tft_.drawLine(x + 5, y + 20, x + 16, y + 4, color);
+      tft_.drawLine(x + 8, y + 21, x + 19, y + 5, color);
+      tft_.drawFastHLine(x + 3, y + 21, 9, color);
+      break;
+    case UiIcon::Air:
+      tft_.drawFastHLine(x + 2, y + 6, 17, color);
+      tft_.drawFastHLine(x + 5, y + 12, 17, color);
+      tft_.drawFastHLine(x + 2, y + 18, 15, color);
+      tft_.fillCircle(x + 20, y + 6, 2, color);
+      tft_.fillCircle(x + 3, y + 12, 2, color);
+      tft_.fillCircle(x + 18, y + 18, 2, color);
+      break;
+    case UiIcon::Speed:
+      tft_.drawCircle(cx, cy, 10, color);
+      tft_.drawLine(cx, cy, x + 19, y + 7, color);
+      tft_.fillCircle(cx, cy, 2, color);
+      break;
+    case UiIcon::Battery:
+      tft_.drawRect(x + 3, y + 6, 18, 13, color);
+      tft_.fillRect(x + 21, y + 10, 2, 5, color);
+      tft_.drawFastHLine(x + 7, cy, 4, color);
+      tft_.drawFastHLine(x + 14, cy, 4, color);
+      tft_.drawFastVLine(x + 16, y + 10, 5, color);
+      break;
+    case UiIcon::Fuel:
+      tft_.drawRect(x + 3, y + 3, 12, 19, color);
+      tft_.drawRect(x + 5, y + 6, 8, 5, color);
+      tft_.drawLine(x + 15, y + 6, x + 20, y + 9, color);
+      tft_.drawLine(x + 20, y + 9, x + 20, y + 19, color);
+      break;
+    case UiIcon::None:
+      break;
+  }
 }
 
 
@@ -597,7 +783,10 @@ bool TftRenderer::sameItem(const UiItem& left, const UiItem& right) const {
   return left.label == right.label &&
       left.value == right.value &&
       left.enabled == right.enabled &&
-      left.destructive == right.destructive;
+      left.destructive == right.destructive &&
+      left.positive == right.positive &&
+      left.icon == right.icon &&
+      left.tone == right.tone;
 }
 
 bool TftRenderer::sameField(const UiField& left, const UiField& right) const {

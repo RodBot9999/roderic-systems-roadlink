@@ -1,0 +1,28 @@
+# dependencies
+/node_modules
+
+# desktop builds
+/dist/
+/release/
+*.tsbuildinfo
+
+# local artifacts
+/outputs/
+/work/
+
+# local settings and secrets
+.env
+.env.*
+!.env.example
+
+# editor and operating system
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*

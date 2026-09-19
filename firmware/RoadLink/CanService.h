@@ -59,8 +59,6 @@ public:
   bool popDiagnosticFrame(CanFrameSnapshot& frame);
 
   void clearStatistics();
-  void setSerialStreaming(bool enabled);
-
   bool initialized() const;
   bool busActive() const;
   bool canTransmit() const;
@@ -82,14 +80,12 @@ private:
   void updateRateCounter();
   void trackIdentifier(const CanFrameSnapshot& frame);
   void queueDiagnosticFrame(const CanFrameSnapshot& frame);
-  void printFrameToSerial(const CanFrameSnapshot& frame, bool transmitted) const;
 
   uint8_t chipSelectPin_;
   uint8_t interruptPin_;
   MCP_CAN controller_;
 
   bool initialized_ = false;
-  bool serialStreaming_ = false;
   uint8_t initializationResult_ = 0xFF;
   uint8_t controllerError_ = 0;
   uint8_t lastTransmitResult_ = 0xFF;

@@ -1,6 +1,6 @@
 # Roderic Systems RoadLink Architecture
 
-ESP32 automotive CAN/GPS/OBD scanner with a renderer-independent UI, a 2.4-inch SPI TFT, a local phone web app, live WebSocket updates, and SIM800L cellular telemetry.
+ESP32 automotive CAN/GPS/OBD scanner with a renderer-independent UI, a 2.4-inch SPI TFT, a local phone web app, live WebSocket updates, and A7670SA cellular telemetry.
 
 ## Required Arduino libraries
 
@@ -21,9 +21,8 @@ ESP32 automotive CAN/GPS/OBD scanner with a renderer-independent UI, a 2.4-inch 
 | GPS PPS | 34 |
 | GPS TX -> ESP32 RX | 35 |
 | GPS RX <- ESP32 TX | 32 |
-| SIM800L RST | 2 |
-| ESP32 TX -> SIM800L RX | 16 |
-| ESP32 RX <- SIM800L TX | 17 |
+| ESP32 TX -> A7670SA RX | 16 |
+| ESP32 RX <- A7670SA TX | 17 |
 | MCP2515 CS | 23 |
 | MCP2515 SO / shared MISO | 19 |
 | MCP2515 SI / shared MOSI | 18 |
@@ -39,6 +38,10 @@ GPIO12 and GPIO14 are the confirmed working TFT control pins on the assembled un
 
 The TFT is configured as a 320x240 landscape ILI9341 display. Its LED/backlight pin is treated as external hardware and is not driven by an ESP32 GPIO in this firmware.
 
+The A7670SA uses only power, ground, and the two UART signals. Reset,
+sleep/DTR, and PWRKEY are not connected to the ESP32 and are not driven by the
+firmware.
+
 ## Carrier PCB design
 
 The RoadLink PCB was created to turn the prototype into one organized vehicle
@@ -51,12 +54,12 @@ The board-level design follows several practical constraints:
 
 - The TFT and MCP2515 share one SPI bus to conserve ESP32 pins. Independent
   chip-select lines prevent both peripherals from driving the bus together.
-- GPS and SIM800L are assigned separate hardware UARTs so serial traffic can be
+- GPS and A7670SA are assigned separate hardware UARTs so serial traffic can be
   processed independently.
 - CAN interrupt, GPS PPS, encoder signals, and display control lines remain
   dedicated rather than multiplexed.
 - Local bulk capacitance and short power paths support transient loads, but the
-  SIM800L still requires a correctly regulated external supply and appropriate
+  A7670SA still requires a correctly regulated external supply and appropriate
   UART level handling.
 - The confirmed GPIO table documents the assembled PCB revision. It
   intentionally replaces earlier experimental assignments that behaved
@@ -77,7 +80,7 @@ an enclosure, and validated connectors.
    - GPS receiver UART;
    - OBD service;
    - MCP2515 CAN controller;
-   - SIM800L modem;
+   - A7670SA modem;
    - local WebSocket server.
 4. The MCP2515 initializes before the optional modem UART. CAN failures are
    registered as errors, while missing GPS or SIM modules are warnings.
@@ -124,7 +127,7 @@ CAN / OBD / GPS services
 - uses a black/cyan industrial-cyber visual language;
 - renders complete menu lists with a selection bar and scrollbar;
 - renders data as compact two-column field cells;
-- automatically pages detail screens containing more than ten fields;
+- keeps detail pages fixed until the rotary encoder selects another page;
 - shows the currently selected detail action in the footer;
 - redraws only when the `UiModel` revision or TFT detail page changes;
 - converts unsupported UTF-8 symbols such as degree marks into ASCII-friendly labels.
@@ -171,9 +174,11 @@ Scan-Track-Log
 │   ├── Raw NMEA
 │   ├── Reset GPS Statistics
 │   └── Back
-├── SIM / Cellular
+├── A7670SA / Cellular
 │   ├── Status / diagnostics
-│   ├── Enable modem / auto send
+│   ├── Errors / failure details
+│   ├── Enable / disable modem checks
+│   ├── START / STOP telemetry
 │   ├── Data to send
 │   │   ├── GPS telemetry
 │   │   ├── OBD-II telemetry
@@ -182,8 +187,9 @@ Scan-Track-Log
 │   ├── Access key
 │   ├── Send telemetry now
 │   ├── Send interval
-│   ├── Reset / reconnect
+│   ├── Reconnect modem
 │   └── Back
+├── Reboot (confirmation, UART modem reset + ESP32 restart)
 └── Settings
     ├── CAN Bitrate
     ├── CAN Operating Mode
@@ -195,6 +201,12 @@ Scan-Track-Log
     ├── About
     └── Back
 ```
+
+Detail screens containing more than ten fields never advance on a timer. Rotate
+the encoder to move between pages and press to return. The receiver IP, port,
+and key editors also use explicit selection: rotate to choose a digit, press to
+edit it, rotate through `0`-`9`, and press again to finish that digit. Rotating
+past the digits exposes `SAVE CHANGES` and `CANCEL / BACK`.
 
 ## Web interface
 
@@ -244,20 +256,31 @@ Tree navigation, screen definitions, actions, settings, and conversion of servic
 ### `CanService.*`, `ObdService.*`, `GpsService.*`, `EncoderInput.*`
 Hardware and protocol services, independent of the active renderer.
 
-### `Sim800Service.*`
-Non-blocking SIM800L initialization, GSM/GPRS status, HTTP POST state machine, and JSON serialization of the existing GPS and OBD-II snapshots.
+### `A7670Service.*`
+Non-blocking A7670SA initialization, LTE registration/PDP status, HTTP POST
+state machine, and JSON serialization of the existing GPS and OBD-II snapshots.
 
 `SettingsStore` persists the runtime receiver IPv4 address, TCP port, six-digit
-access key, enable state, auto-send state, and interval in ESP32 NVS. The
-receiver URL is assembled only inside `Sim800Service`; there is no alternate
+access key, check-enable state, and interval in ESP32 NVS. Telemetry-running
+state is volatile and starts false on every boot/re-enable/reconnect. The
+receiver URL is assembled only inside `A7670Service`; there is no alternate
 compiled tunnel endpoint.
 
 It also persists independent GPS and OBD-II payload-selection flags. SIM
 controls are a first-level main-menu branch, with a separate status screen,
 configuration actions, and checkbox-style telemetry selection.
 
+Warm enable preserves and queries the externally powered modem's existing
+radio, operator, registration, attachment, APN, and LTE default bearer. Normal
+LTE searching polls without recording a failed AT command each time. The
+HTTP state machine is gated by explicit START; STOP settles pending AT/data
+input and terminates its HTTP service without launching another POST.
+
+The confirmed main-menu Reboot requests a bounded UART software modem reset
+and ESP32 restart. It never claims to electrically reset unconnected devices.
+
 Startup owns a bounded optional-module probe before `MenuSystem::begin()`.
-GPS presence is based on received UART bytes; SIM800L presence is based on a
+GPS presence is based on received UART bytes; A7670SA presence is based on a
 successful `AT` response. Missing optional modules are recorded as warnings.
 Only after the timed diagnostics display finishes is the first menu frame
 published, preventing the boot renderer from being left on the check screen.
@@ -275,8 +298,7 @@ published, preventing the boot renderer from being left on the check screen.
 
 ## Validation status
 
-The complete RoadLink firmware compiles with the Espressif ESP32 Arduino core
-3.3.7 and the documented libraries. The current build uses approximately 84%
-of flash and 17% of dynamic memory. The standalone SIM800L baud scanner also
-compiles independently. Final validation still depends on the physical PCB,
-module revisions, wiring, cellular network, and target vehicle.
+The firmware is intended for the Espressif ESP32 Arduino core and the documented
+libraries. Final validation still depends on the physical PCB, exact A7670SA
+breakout revision, power supply, UART wiring, cellular network, and target
+vehicle.

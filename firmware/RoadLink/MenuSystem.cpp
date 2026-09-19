@@ -6,30 +6,47 @@ MenuSystem::MenuSystem(
     CanService& can,
     ObdService& obd,
     GpsService& gps,
+    A7670Service& sim,
     AppSettings& settings,
+    SettingsStore& settingsStore,
     StartupDiagnostics& diagnostics,
-    WebUiService& webUi)
+    StreamingController& streaming)
   : ui_(ui),
     can_(can),
     obd_(obd),
     gps_(gps),
+    sim_(sim),
     settings_(settings),
+    settingsStore_(settingsStore),
     diagnostics_(diagnostics),
-    webUi_(webUi) {
+    streaming_(streaming) {
   navigation_[0].screen = ScreenId::MainMenu;
 }
 
 void MenuSystem::begin() {
   navigationDepth_ = 1;
-  navigation_[0].selection = 0;
   navigation_[0].screen = diagnostics_.hasErrors() && !diagnostics_.overridden()
       ? ScreenId::StartupErrors
       : ScreenId::MainMenu;
+  navigation_[0].selection = navigation_[0].screen == ScreenId::StartupErrors
+      ? diagnostics_.count()
+      : 0;
   render(true);
 }
 
 void MenuSystem::handleInput(InputEvent event) {
   if (event == InputEvent::None) return;
+  if (currentScreen() == ScreenId::RebootProgress) return;
+
+  if (handleSimEditorInput(event)) {
+    render(true);
+    return;
+  }
+
+  if (handleStreamingIntervalInput(event)) {
+    render(true);
+    return;
+  }
 
   if (event == InputEvent::Back) {
     goBack();
@@ -68,10 +85,12 @@ void MenuSystem::pushScreen(ScreenId screen) {
   if (navigationDepth_ < NAVIGATION_DEPTH) {
     navigation_[navigationDepth_].screen = screen;
     navigation_[navigationDepth_].selection = 0;
+    navigation_[navigationDepth_].detailPage = 0;
     navigationDepth_++;
   } else {
     navigation_[NAVIGATION_DEPTH - 1].screen = screen;
     navigation_[NAVIGATION_DEPTH - 1].selection = 0;
+    navigation_[NAVIGATION_DEPTH - 1].detailPage = 0;
   }
 
   onScreenChanged(previous, screen);
@@ -86,12 +105,8 @@ void MenuSystem::goBack() {
 }
 
 void MenuSystem::onScreenChanged(ScreenId previous, ScreenId current) {
-  if (previous == ScreenId::GpsRawNmea && current != ScreenId::GpsRawNmea) {
-    gps_.setRawSerialEnabled(false);
-  }
-
   if (previous == ScreenId::ObdLiveData && current != ScreenId::ObdLiveData) {
-    obd_.setLivePolling(false);
+    if (!streaming_.running()) obd_.setLivePolling(false);
   }
 
   if (current == ScreenId::ObdLiveData) {
@@ -102,6 +117,8 @@ void MenuSystem::onScreenChanged(ScreenId previous, ScreenId current) {
 }
 
 void MenuSystem::rotate(int8_t direction) {
+  if (changeDetailPage(direction)) return;
+
   const uint8_t count = itemCount(currentScreen());
   if (count == 0) return;
 
@@ -118,6 +135,31 @@ void MenuSystem::rotate(int8_t direction) {
   }
 }
 
+bool MenuSystem::takeRebootRequest() {
+  const bool requested = rebootRequested_;
+  rebootRequested_ = false;
+  return requested;
+}
+
+bool MenuSystem::changeDetailPage(int8_t direction) {
+  const UiFrame frame = buildFrame(currentScreen());
+  if (frame.layout == UiLayout::Menu || frame.layout == UiLayout::Tiles ||
+      frame.fieldCount <= UI_DETAIL_FIELDS_PER_PAGE ||
+      frame.itemCount > 1) {
+    return false;
+  }
+
+  const uint8_t pageCount = static_cast<uint8_t>(
+      (frame.fieldCount + UI_DETAIL_FIELDS_PER_PAGE - 1) /
+      UI_DETAIL_FIELDS_PER_PAGE);
+  int16_t next = static_cast<int16_t>(
+      navigation_[navigationDepth_ - 1].detailPage) + direction;
+  if (next < 0) next = pageCount - 1;
+  if (next >= pageCount) next = 0;
+  navigation_[navigationDepth_ - 1].detailPage = static_cast<uint8_t>(next);
+  return true;
+}
+
 void MenuSystem::press() {
   const uint8_t count = itemCount(currentScreen());
   if (count == 0 || currentSelection() >= count) return;
@@ -129,7 +171,18 @@ uint8_t MenuSystem::itemCount(ScreenId screen) const {
   switch (screen) {
     case ScreenId::StartupErrors:      return diagnostics_.count() + 1;
     case ScreenId::StartupErrorDetail: return 1;
-    case ScreenId::MainMenu:           return 3;
+    case ScreenId::MainMenu:           return 6;
+    case ScreenId::RebootConfirm:      return 2;
+    case ScreenId::RebootProgress:     return 0;
+    case ScreenId::StreamingMenu:      return 4;
+    case ScreenId::StreamingSources:   return 3;
+    case ScreenId::StreamingObdCategories: return 4;
+    case ScreenId::StreamingEngine:    return 4;
+    case ScreenId::StreamingAir:       return 2;
+    case ScreenId::StreamingVehicle:   return 1;
+    case ScreenId::StreamingPower:     return 2;
+    case ScreenId::StreamingInterval:  return 0;
+    case ScreenId::StreamingStatus:    return 1;
     case ScreenId::CanMenu:            return 7;
     case ScreenId::CanMonitorMenu:     return 3;
     case ScreenId::CanStatus:          return 2;
@@ -152,8 +205,14 @@ uint8_t MenuSystem::itemCount(ScreenId screen) const {
     case ScreenId::GpsMotion:
     case ScreenId::GpsTime:
     case ScreenId::GpsNmeaStatistics:  return 1;
-    case ScreenId::GpsRawNmea:         return 2;
-    case ScreenId::SettingsMenu:       return 9;
+    case ScreenId::GpsRawNmea:         return 1;
+    case ScreenId::SettingsMenu:       return 6;
+    case ScreenId::SimConfiguration:   return 8;
+    case ScreenId::SimStatus:          return 1;
+    case ScreenId::SimErrors:          return 1;
+    case ScreenId::SimIpEditor:
+    case ScreenId::SimPortEditor:
+    case ScreenId::SimKeyEditor:       return 0;
     case ScreenId::About:              return 1;
   }
   return 0;
@@ -163,14 +222,47 @@ String MenuSystem::itemLabel(ScreenId screen, uint8_t index) const {
   if (screen == ScreenId::StartupErrors) {
     if (index < diagnostics_.count()) {
       const ModuleError* error = diagnostics_.error(index);
-      return error ? moduleName(error->module) : "Unknown module";
+      return error
+          ? String(error->warning ? "[WARNING] " : "[ERROR] ") +
+              moduleName(error->module)
+          : "Unknown module";
     }
     return "OVERRIDE AND CONTINUE";
   }
 
   if (screen == ScreenId::MainMenu) {
-    static const char* ITEMS[] = {"CAN Tools", "GPS Tools", "Settings"};
+    static const char* ITEMS[] = {
+      "Streaming", "CAN Tools", "GPS Tools", "A7670SA / Cellular", "Settings", "Reboot"
+    };
     return ITEMS[index];
+  }
+
+  if (screen == ScreenId::StreamingMenu) {
+    static const char* ITEMS[] = {"START", "Interval", "Sources", "Status"};
+    if (index == 0) return streaming_.running() ? "STOP" : "START";
+    return ITEMS[index];
+  }
+
+  if (screen == ScreenId::StreamingSources) {
+    static const char* ITEMS[] = {"GPS", "OBD-II", "OBD fields"};
+    return ITEMS[index];
+  }
+
+  if (screen == ScreenId::StreamingObdCategories) {
+    static const char* ITEMS[] = {"Engine", "Air / Intake", "Driving", "Power / Fuel"};
+    return ITEMS[index];
+  }
+
+  if (screen == ScreenId::StreamingEngine) {
+    static const char* ITEMS[] = {"RPM", "Coolant", "Throttle", "Timing"};
+    return ITEMS[index];
+  }
+  if (screen == ScreenId::StreamingAir) {
+    return index == 0 ? "Manifold" : "Intake temp";
+  }
+  if (screen == ScreenId::StreamingVehicle) return "Speed";
+  if (screen == ScreenId::StreamingPower) {
+    return index == 0 ? "ECU volts" : "Fuel level";
   }
 
   if (screen == ScreenId::CanMenu) {
@@ -204,8 +296,8 @@ String MenuSystem::itemLabel(ScreenId screen, uint8_t index) const {
 
   if (screen == ScreenId::SettingsMenu) {
     static const char* ITEMS[] = {
-      "CAN Bitrate", "CAN Operating Mode", "Serial CAN Stream", "Serial UI Mirror",
-      "Web UI", "UI Refresh", "OBD Poll Interval", "About", "< Back"
+      "CAN Bitrate", "CAN Operating Mode", "UI Refresh",
+      "OBD Poll Interval", "About", "< Back"
     };
     return ITEMS[index];
   }
@@ -217,6 +309,8 @@ String MenuSystem::itemLabel(ScreenId screen, uint8_t index) const {
   }
 
   switch (screen) {
+    case ScreenId::RebootConfirm:
+      return index == 0 ? "CANCEL / Back" : "CONFIRM REBOOT";
     case ScreenId::StartupErrorDetail:
     case ScreenId::CanLiveFrame:
     case ScreenId::CanIdDetail:
@@ -229,6 +323,9 @@ String MenuSystem::itemLabel(ScreenId screen, uint8_t index) const {
     case ScreenId::GpsNmeaStatistics:
     case ScreenId::About:
       return "< Back";
+    case ScreenId::SimStatus:
+    case ScreenId::SimErrors:
+      return "< Back";
 
     case ScreenId::CanStatus:
       return index == 0 ? "Retry CAN Controller" : "< Back";
@@ -237,7 +334,10 @@ String MenuSystem::itemLabel(ScreenId screen, uint8_t index) const {
     case ScreenId::ObdDiscovery:
       return index == 0 ? "Start ECU Discovery" : "< Back";
     case ScreenId::ObdLiveData:
-      if (index == 0) return obd_.livePollingEnabled() ? "Stop Live Polling" : "Start Live Polling";
+      if (index == 0) {
+        if (streaming_.running() && settings_.simSendObd) return "Streaming polling active";
+        return obd_.livePollingEnabled() ? "Stop Live Polling" : "Start Live Polling";
+      }
       return index == 1 ? "Read All Once" : "< Back";
     case ScreenId::ObdSupportedPids:
       return index == 0 ? "Scan Supported PIDs" : "< Back";
@@ -248,22 +348,88 @@ String MenuSystem::itemLabel(ScreenId screen, uint8_t index) const {
     case ScreenId::ObdVin:
       return index == 0 ? "Read VIN" : "< Back";
     case ScreenId::GpsRawNmea:
-      return index == 0 ? "Toggle Raw Serial" : "< Back";
+      return "< Back";
+    case ScreenId::SimConfiguration:
+      switch (index) {
+        case 0: return "Status / diagnostics";
+        case 1: return "Errors / failure details";
+        case 2: return sim_.enabled() ? "Disable modem checks" : "Enable modem checks";
+        case 3: return "Receiver IP";
+        case 4: return "Receiver port";
+        case 5: return "Access key";
+        case 6: return "Reconnect modem";
+        default: return "< Back";
+      }
     default:
       return "?";
   }
 }
 
 String MenuSystem::itemValue(ScreenId screen, uint8_t index) const {
+  if (screen == ScreenId::StreamingMenu) {
+    switch (index) {
+      case 0: return streaming_.running() ? "RUNNING" : "READY";
+      case 1: return streamIntervalLabel();
+      case 2: return String((settings_.simSendGps ? 1 : 0) +
+          (settings_.simSendObd ? 1 : 0)) + " / 2";
+      case 3: return "REV " + String(settings_.streamConfigRevision);
+    }
+  }
+  if (screen == ScreenId::StreamingSources) {
+    if (index == 0) return settings_.simSendGps ? "ON" : "OFF";
+    if (index == 1) return settings_.simSendObd ? "ON" : "OFF";
+    return String(streaming_.selectedObdFieldCount()) + " selected";
+  }
+  if (screen == ScreenId::StreamingObdCategories) {
+    static const uint16_t MASKS[] = {
+      StreamField::RPM | StreamField::COOLANT | StreamField::THROTTLE | StreamField::TIMING,
+      StreamField::MANIFOLD | StreamField::INTAKE_TEMP,
+      StreamField::SPEED,
+      StreamField::VOLTAGE | StreamField::FUEL_LEVEL
+    };
+    return String(selectedFieldCount(settings_.simObdFieldMask & MASKS[index])) +
+        " / " + selectedFieldCount(MASKS[index]);
+  }
+  uint16_t streamField = 0;
+  if (screen == ScreenId::StreamingEngine) {
+    static const uint16_t FIELDS[] = {
+      StreamField::RPM, StreamField::COOLANT, StreamField::THROTTLE, StreamField::TIMING};
+    streamField = FIELDS[index];
+  } else if (screen == ScreenId::StreamingAir) {
+    streamField = index == 0 ? StreamField::MANIFOLD : StreamField::INTAKE_TEMP;
+  } else if (screen == ScreenId::StreamingVehicle) {
+    streamField = StreamField::SPEED;
+  } else if (screen == ScreenId::StreamingPower) {
+    streamField = index == 0 ? StreamField::VOLTAGE : StreamField::FUEL_LEVEL;
+  }
+  if (streamField) return settings_.simObdFieldMask & streamField ? "ON" : "OFF";
+
   if (screen == ScreenId::SettingsMenu) {
     switch (index) {
       case 0: return canBitrateLabel(settings_.canBitrate);
       case 1: return canModeLabel(settings_.canMode);
-      case 2: return settings_.serialCanStreaming ? "ON" : "OFF";
-      case 3: return settings_.serialUiMirror ? "ON" : "OFF";
-      case 4: return settings_.webUiEnabled ? "ON" : "OFF";
-      case 5: return String(settings_.uiRefreshMs) + " ms";
-      case 6: return String(settings_.obdPollMs) + " ms";
+      case 2: return String(settings_.uiRefreshMs) + " ms";
+      case 3: return String(settings_.obdPollMs) + " ms";
+      default: return "";
+    }
+  }
+
+  if (screen == ScreenId::SimConfiguration) {
+      switch (index) {
+        case 0: return sim_.stateLabel();
+        case 1: return sim_.snapshot().failureCount
+            ? String(sim_.snapshot().failureCount) + " RECORDED"
+            : "NONE";
+        case 2: return sim_.enabled() ? "ON" : "OFF";
+        case 3: return ipLabel(settings_.simServerIp);
+        case 4: return settings_.simServerPort
+          ? String(settings_.simServerPort) : "NOT SET";
+        case 5: {
+        char key[7];
+        snprintf(key, sizeof(key), "%06lu",
+            static_cast<unsigned long>(settings_.simAccessKey));
+        return key;
+      }
       default: return "";
     }
   }
@@ -271,10 +437,6 @@ String MenuSystem::itemValue(ScreenId screen, uint8_t index) const {
   if (screen == ScreenId::CanIdBrowser && index < can_.statistics().uniqueIdCount) {
     const CanIdEntry* entry = can_.idEntry(index);
     return entry ? String(entry->count) + " frames" : "";
-  }
-
-  if (screen == ScreenId::GpsRawNmea && index == 0) {
-    return gps_.rawSerialEnabled() ? "ON" : "OFF";
   }
 
   if (screen == ScreenId::StartupErrors && index < diagnostics_.count()) {
@@ -286,16 +448,89 @@ String MenuSystem::itemValue(ScreenId screen, uint8_t index) const {
 }
 
 bool MenuSystem::itemEnabled(ScreenId screen, uint8_t index) const {
-  (void)index;
   if (screen == ScreenId::CanIdBrowser && index < can_.statistics().uniqueIdCount) {
     return can_.idEntry(index) != nullptr;
   }
+  if (screen == ScreenId::SimConfiguration) {
+    if (index == 6) return sim_.enabled();
+  }
+  if (screen == ScreenId::ObdLiveData && index == 0 &&
+      streaming_.running() && settings_.simSendObd) return false;
   return true;
 }
 
 bool MenuSystem::itemDestructive(ScreenId screen, uint8_t index) const {
   return (screen == ScreenId::ObdClearConfirm && index == 1) ||
-         (screen == ScreenId::CanMenu && index == 4);
+         (screen == ScreenId::CanMenu && index == 4) ||
+         (screen == ScreenId::RebootConfirm && index == 1) ||
+         (screen == ScreenId::StreamingMenu && index == 0 && streaming_.running());
+}
+
+UiIcon MenuSystem::itemIcon(ScreenId screen, uint8_t index) const {
+  if (screen == ScreenId::StreamingMenu) {
+    static const UiIcon ICONS[] = {
+      UiIcon::StartStop, UiIcon::Clock, UiIcon::Sources, UiIcon::Status};
+    return ICONS[index];
+  }
+  if (screen == ScreenId::StreamingSources) {
+    static const UiIcon ICONS[] = {UiIcon::Gps, UiIcon::Obd, UiIcon::Sources};
+    return ICONS[index];
+  }
+  if (screen == ScreenId::StreamingObdCategories) {
+    static const UiIcon ICONS[] = {UiIcon::Engine, UiIcon::Air, UiIcon::Speed, UiIcon::Battery};
+    return ICONS[index];
+  }
+  if (screen == ScreenId::StreamingEngine) {
+    static const UiIcon ICONS[] = {UiIcon::Speed, UiIcon::Coolant, UiIcon::Throttle, UiIcon::Timing};
+    return ICONS[index];
+  }
+  if (screen == ScreenId::StreamingAir) return index == 0 ? UiIcon::Air : UiIcon::Coolant;
+  if (screen == ScreenId::StreamingVehicle) return UiIcon::Speed;
+  if (screen == ScreenId::StreamingPower) return index == 0 ? UiIcon::Battery : UiIcon::Fuel;
+  return UiIcon::None;
+}
+
+UiTone MenuSystem::itemTone(ScreenId screen, uint8_t index) const {
+  if (screen == ScreenId::StreamingMenu) {
+    if (index == 0) return streaming_.running() ? UiTone::Off : UiTone::On;
+    if (index == 2) {
+      const uint8_t selected = (settings_.simSendGps ? 1 : 0) +
+          (settings_.simSendObd ? 1 : 0);
+      return selected == 0 ? UiTone::Off : (selected == 2 ? UiTone::On : UiTone::Partial);
+    }
+    return UiTone::Neutral;
+  }
+  if (screen == ScreenId::StreamingSources) {
+    if (index == 0) return settings_.simSendGps ? UiTone::On : UiTone::Off;
+    if (index == 1) return settings_.simSendObd ? UiTone::On : UiTone::Off;
+    return streaming_.selectedObdFieldCount() ? UiTone::Partial : UiTone::Off;
+  }
+
+  uint16_t mask = 0;
+  if (screen == ScreenId::StreamingObdCategories) {
+    static const uint16_t MASKS[] = {
+      StreamField::RPM | StreamField::COOLANT | StreamField::THROTTLE | StreamField::TIMING,
+      StreamField::MANIFOLD | StreamField::INTAKE_TEMP,
+      StreamField::SPEED,
+      StreamField::VOLTAGE | StreamField::FUEL_LEVEL};
+    mask = MASKS[index];
+    const uint8_t selected = selectedFieldCount(settings_.simObdFieldMask & mask);
+    return selected == 0 ? UiTone::Off
+        : (selected == selectedFieldCount(mask) ? UiTone::On : UiTone::Partial);
+  }
+  if (screen == ScreenId::StreamingEngine) {
+    static const uint16_t FIELDS[] = {
+      StreamField::RPM, StreamField::COOLANT, StreamField::THROTTLE, StreamField::TIMING};
+    mask = FIELDS[index];
+  } else if (screen == ScreenId::StreamingAir) {
+    mask = index == 0 ? StreamField::MANIFOLD : StreamField::INTAKE_TEMP;
+  } else if (screen == ScreenId::StreamingVehicle) {
+    mask = StreamField::SPEED;
+  } else if (screen == ScreenId::StreamingPower) {
+    mask = index == 0 ? StreamField::VOLTAGE : StreamField::FUEL_LEVEL;
+  }
+  return mask && (settings_.simObdFieldMask & mask) ? UiTone::On
+      : (mask ? UiTone::Off : UiTone::Neutral);
 }
 
 void MenuSystem::activateItem(ScreenId screen, uint8_t index) {
@@ -312,9 +547,54 @@ void MenuSystem::activateItem(ScreenId screen, uint8_t index) {
   }
 
   if (screen == ScreenId::MainMenu) {
-    if (index == 0) pushScreen(ScreenId::CanMenu);
-    else if (index == 1) pushScreen(ScreenId::GpsMenu);
-    else pushScreen(ScreenId::SettingsMenu);
+    if (index == 0) pushScreen(ScreenId::StreamingMenu);
+    else if (index == 1) pushScreen(ScreenId::CanMenu);
+    else if (index == 2) pushScreen(ScreenId::GpsMenu);
+    else if (index == 3) pushScreen(ScreenId::SimConfiguration);
+    else if (index == 4) pushScreen(ScreenId::SettingsMenu);
+    else pushScreen(ScreenId::RebootConfirm);
+    return;
+  }
+
+  if (screen == ScreenId::StreamingMenu) {
+    if (index == 0) {
+      if (streaming_.running()) streaming_.stop();
+      else streaming_.start();
+    } else if (index == 1) beginStreamingIntervalEditor();
+    else if (index == 2) pushScreen(ScreenId::StreamingSources);
+    else pushScreen(ScreenId::StreamingStatus);
+    return;
+  }
+
+  if (screen == ScreenId::StreamingSources) {
+    if (index == 0) streaming_.setGpsEnabled(!settings_.simSendGps);
+    else if (index == 1) streaming_.setObdEnabled(!settings_.simSendObd);
+    else pushScreen(ScreenId::StreamingObdCategories);
+    return;
+  }
+
+  if (screen == ScreenId::StreamingObdCategories) {
+    static const ScreenId SCREENS[] = {
+      ScreenId::StreamingEngine, ScreenId::StreamingAir,
+      ScreenId::StreamingVehicle, ScreenId::StreamingPower};
+    pushScreen(SCREENS[index]);
+    return;
+  }
+
+  uint16_t streamField = 0;
+  if (screen == ScreenId::StreamingEngine) {
+    static const uint16_t FIELDS[] = {
+      StreamField::RPM, StreamField::COOLANT, StreamField::THROTTLE, StreamField::TIMING};
+    streamField = FIELDS[index];
+  } else if (screen == ScreenId::StreamingAir) {
+    streamField = index == 0 ? StreamField::MANIFOLD : StreamField::INTAKE_TEMP;
+  } else if (screen == ScreenId::StreamingVehicle) {
+    streamField = StreamField::SPEED;
+  } else if (screen == ScreenId::StreamingPower) {
+    streamField = index == 0 ? StreamField::VOLTAGE : StreamField::FUEL_LEVEL;
+  }
+  if (streamField) {
+    streaming_.toggleObdField(streamField);
     return;
   }
 
@@ -380,28 +660,25 @@ void MenuSystem::activateItem(ScreenId screen, uint8_t index) {
     switch (index) {
       case 0: cycleCanBitrate(); break;
       case 1: toggleCanMode(); break;
-      case 2:
-        settings_.serialCanStreaming = !settings_.serialCanStreaming;
-        can_.setSerialStreaming(settings_.serialCanStreaming);
-        break;
-      case 3:
-        settings_.serialUiMirror = !settings_.serialUiMirror;
-        ui_.setSerialMirror(settings_.serialUiMirror);
-        break;
-      case 4: {
-        const bool requested = !settings_.webUiEnabled;
-        settings_.webUiEnabled = webUi_.setEnabled(requested);
-        break;
-      }
-      case 5: cycleUiRefresh(); break;
-      case 6: cycleObdPoll(); break;
-      case 7: pushScreen(ScreenId::About); break;
-      case 8: goBack(); break;
+      case 2: cycleUiRefresh(); break;
+      case 3: cycleObdPoll(); break;
+      case 4: pushScreen(ScreenId::About); break;
+      case 5: goBack(); break;
     }
     return;
   }
 
   switch (screen) {
+    case ScreenId::RebootConfirm:
+      if (index == 0) goBack();
+      else {
+        obd_.cancelOperation();
+        obd_.setLivePolling(false);
+        streaming_.stop();
+        rebootRequested_ = true;
+        pushScreen(ScreenId::RebootProgress);
+      }
+      break;
     case ScreenId::StartupErrorDetail:
     case ScreenId::CanLiveFrame:
     case ScreenId::CanIdDetail:
@@ -413,6 +690,9 @@ void MenuSystem::activateItem(ScreenId screen, uint8_t index) {
     case ScreenId::GpsTime:
     case ScreenId::GpsNmeaStatistics:
     case ScreenId::About:
+    case ScreenId::SimStatus:
+    case ScreenId::SimErrors:
+    case ScreenId::StreamingStatus:
       goBack();
       break;
 
@@ -458,10 +738,37 @@ void MenuSystem::activateItem(ScreenId screen, uint8_t index) {
       } else goBack();
       break;
     case ScreenId::GpsRawNmea:
-      if (index == 0) gps_.setRawSerialEnabled(!gps_.rawSerialEnabled());
-      else {
-        gps_.setRawSerialEnabled(false);
-        goBack();
+      goBack();
+      break;
+    case ScreenId::SimConfiguration:
+      switch (index) {
+        case 0:
+          pushScreen(ScreenId::SimStatus);
+          break;
+        case 1:
+          pushScreen(ScreenId::SimErrors);
+          break;
+        case 2:
+          if (sim_.enabled()) streaming_.stop();
+          settings_.simEnabled = !settings_.simEnabled;
+          sim_.setEnabled(settings_.simEnabled);
+          settingsStore_.saveSim(settings_);
+          break;
+        case 3:
+          beginSimEditor(ScreenId::SimIpEditor);
+          break;
+        case 4:
+          beginSimEditor(ScreenId::SimPortEditor);
+          break;
+        case 5:
+          beginSimEditor(ScreenId::SimKeyEditor);
+          break;
+        case 6:
+          sim_.requestReconnect();
+          break;
+        case 7:
+          goBack();
+          break;
       }
       break;
     default:
@@ -484,6 +791,7 @@ UiFrame MenuSystem::buildFrame(ScreenId screen) const {
   frame.title = titleFor(screen);
   frame.breadcrumb = breadcrumbFor(screen);
   frame.canGoBack = navigationDepth_ > 1;
+  frame.detailPage = navigation_[navigationDepth_ - 1].detailPage;
 
   const uint8_t count = itemCount(screen);
   for (uint8_t index = 0; index < count; ++index) {
@@ -492,10 +800,27 @@ UiFrame MenuSystem::buildFrame(ScreenId screen) const {
         itemLabel(screen, index),
         itemValue(screen, index),
         itemEnabled(screen, index),
-        itemDestructive(screen, index));
+        itemDestructive(screen, index),
+        itemIcon(screen, index),
+        itemTone(screen, index));
+    frame.items[frame.itemCount - 1].positive =
+        screen == ScreenId::StreamingMenu && index == 0 && !streaming_.running();
   }
 
   switch (screen) {
+    case ScreenId::RebootConfirm:
+      frame.subtitle = "Restart ESP32 and request A7670SA reset over UART.";
+      frame.status = "Settings kept. External module power stays on.";
+      break;
+    case ScreenId::RebootProgress:
+      frame.canGoBack = false;
+      addField(frame, "Modem", sim_.stateLabel());
+      addField(frame, "ESP32", "Restart after modem reset");
+      addField(frame, "Telemetry", "Stopped until START");
+      frame.status = "Please wait. External modules remain powered.";
+      break;
+    case ScreenId::StreamingInterval: fillStreamingInterval(frame); break;
+    case ScreenId::StreamingStatus:   fillStreamingStatus(frame); break;
     case ScreenId::StartupErrorDetail: fillStartupErrorDetail(frame); break;
     case ScreenId::CanStatus:          fillCanStatus(frame); break;
     case ScreenId::CanLiveFrame:       fillCanLiveFrame(frame); break;
@@ -519,19 +844,43 @@ UiFrame MenuSystem::buildFrame(ScreenId screen) const {
     case ScreenId::GpsTime:            fillGpsTime(frame); break;
     case ScreenId::GpsNmeaStatistics:  fillGpsNmeaStatistics(frame); break;
     case ScreenId::GpsRawNmea:         fillGpsRawNmea(frame); break;
+    case ScreenId::SimStatus:          fillSimConfiguration(frame); break;
+    case ScreenId::SimErrors:          fillSimErrors(frame); break;
+    case ScreenId::SimIpEditor:
+    case ScreenId::SimPortEditor:
+    case ScreenId::SimKeyEditor:       fillSimEditor(frame, screen); break;
     case ScreenId::About:              fillAbout(frame); break;
     default:                            break;
   }
 
   if (screen == ScreenId::StartupErrors) {
     frame.layout = UiLayout::Alert;
-    frame.subtitle = "One or more modules failed during startup.";
-    frame.status = "Inspect an error or choose OVERRIDE.";
+    frame.subtitle = diagnostics_.hasFatalErrors()
+        ? "Startup errors or module warnings detected."
+        : "Optional module warnings detected.";
+    frame.status = "Inspect a module or choose OVERRIDE AND CONTINUE.";
   } else if (screen == ScreenId::CanIdBrowser) {
     frame.subtitle = "Discovered CAN identifiers";
     frame.status = String(can_.statistics().uniqueIdCount) + " unique IDs";
   } else if (screen == ScreenId::MainMenu) {
     frame.subtitle = "Rotary tree navigation • Press to select";
+  } else if (screen == ScreenId::StreamingMenu) {
+    frame.subtitle = "Selected data is collected only after START";
+    frame.status = streaming_.statusMessage();
+  } else if (screen == ScreenId::StreamingSources) {
+    frame.subtitle = "Modules keep their field choices when disabled";
+    frame.status = "Device health is always included in heartbeat.";
+  } else if (screen == ScreenId::StreamingObdCategories ||
+      screen == ScreenId::StreamingEngine ||
+      screen == ScreenId::StreamingAir ||
+      screen == ScreenId::StreamingVehicle ||
+      screen == ScreenId::StreamingPower) {
+    frame.subtitle = "Green: selected  Red: off  Hold: back";
+  } else if (screen == ScreenId::SimConfiguration) {
+    frame.status = !sim_.enabled() ? "Checks paused; modem still has power."
+        : (!sim_.endpointConfigured() ? "Set IP and port for telemetry and heartbeat."
+        : (!sim_.ready() ? "Waiting for modem checks."
+        : "Modem ready. Streaming controls are on the main menu."));
   }
 
   return frame;
@@ -539,9 +888,20 @@ UiFrame MenuSystem::buildFrame(ScreenId screen) const {
 
 String MenuSystem::titleFor(ScreenId screen) const {
   switch (screen) {
-    case ScreenId::StartupErrors:      return "Module Errors";
+    case ScreenId::StartupErrors:      return "Startup Diagnostics";
     case ScreenId::StartupErrorDetail: return "Error Details";
     case ScreenId::MainMenu:           return "Scan-Track-Log";
+    case ScreenId::RebootConfirm:      return "Reboot";
+    case ScreenId::RebootProgress:     return "Rebooting";
+    case ScreenId::StreamingMenu:      return "Streaming";
+    case ScreenId::StreamingSources:   return "Stream Sources";
+    case ScreenId::StreamingObdCategories: return "OBD-II Fields";
+    case ScreenId::StreamingEngine:    return "Engine";
+    case ScreenId::StreamingAir:       return "Air / Intake";
+    case ScreenId::StreamingVehicle:   return "Driving";
+    case ScreenId::StreamingPower:     return "Power / Fuel";
+    case ScreenId::StreamingInterval:  return "Send Interval";
+    case ScreenId::StreamingStatus:    return "Streaming Status";
     case ScreenId::CanMenu:            return "CAN Tools";
     case ScreenId::CanMonitorMenu:     return "Passive CAN Monitor";
     case ScreenId::CanStatus:          return "CAN Status";
@@ -566,6 +926,12 @@ String MenuSystem::titleFor(ScreenId screen) const {
     case ScreenId::GpsNmeaStatistics:  return "NMEA Statistics";
     case ScreenId::GpsRawNmea:         return "Raw NMEA";
     case ScreenId::SettingsMenu:       return "Settings";
+    case ScreenId::SimConfiguration:   return "A7670SA Configuration";
+    case ScreenId::SimStatus:          return "A7670SA Status";
+    case ScreenId::SimErrors:          return "A7670SA Errors";
+    case ScreenId::SimIpEditor:        return "Receiver IP";
+    case ScreenId::SimPortEditor:      return "Receiver Port";
+    case ScreenId::SimKeyEditor:       return "Access Key";
     case ScreenId::About:              return "About";
   }
   return "RoadLink";
@@ -585,7 +951,16 @@ UiLayout MenuSystem::layoutFor(ScreenId screen) const {
   switch (screen) {
     case ScreenId::StartupErrors:
     case ScreenId::ObdClearConfirm:
+    case ScreenId::RebootConfirm:
       return UiLayout::Alert;
+    case ScreenId::StreamingMenu:
+    case ScreenId::StreamingSources:
+    case ScreenId::StreamingObdCategories:
+    case ScreenId::StreamingEngine:
+    case ScreenId::StreamingAir:
+    case ScreenId::StreamingVehicle:
+    case ScreenId::StreamingPower:
+      return UiLayout::Tiles;
     case ScreenId::MainMenu:
     case ScreenId::CanMenu:
     case ScreenId::CanMonitorMenu:
@@ -593,6 +968,7 @@ UiLayout MenuSystem::layoutFor(ScreenId screen) const {
     case ScreenId::ObdMenu:
     case ScreenId::GpsMenu:
     case ScreenId::SettingsMenu:
+    case ScreenId::SimConfiguration:
       return UiLayout::Menu;
     default:
       return UiLayout::Detail;
@@ -604,13 +980,17 @@ void MenuSystem::addItem(
     const String& label,
     const String& value,
     bool enabled,
-    bool destructive) const {
+    bool destructive,
+    UiIcon icon,
+    UiTone tone) const {
   if (frame.itemCount >= UI_MAX_ITEMS) return;
   UiItem& item = frame.items[frame.itemCount++];
   item.label = label;
   item.value = value;
   item.enabled = enabled;
   item.destructive = destructive;
+  item.icon = icon;
+  item.tone = tone;
 }
 
 void MenuSystem::addField(UiFrame& frame, const String& label, const String& value) const {
@@ -627,6 +1007,7 @@ void MenuSystem::fillStartupErrorDetail(UiFrame& frame) const {
     return;
   }
   addField(frame, "Module", moduleName(error->module));
+  addField(frame, "Severity", error->warning ? "Warning" : "Error");
   addField(frame, "Summary", error->summary);
   addField(frame, "Primary code", String(error->primaryCode));
   addField(frame, "Secondary code", String(error->secondaryCode));
@@ -823,17 +1204,466 @@ void MenuSystem::fillGpsNmeaStatistics(UiFrame& frame) const {
 void MenuSystem::fillGpsRawNmea(UiFrame& frame) const {
   addField(frame, "Last type", gps_.lastSentenceType());
   addField(frame, "Last sentence", gps_.lastSentence().length() ? gps_.lastSentence() : "No data");
-  frame.status = "Raw NMEA can also be streamed to Serial Monitor.";
+  frame.status = "Serial remains reserved for concise errors.";
+}
+
+void MenuSystem::fillStreamingInterval(UiFrame& frame) const {
+  String value;
+  value.reserve(16);
+  for (uint8_t index = 0; index < 6; ++index) {
+    if (index == 2 || index == 4) value += ':';
+    if (index == editPosition_) value += editChanging_ ? '{' : '[';
+    value += editDigits_[index];
+    if (index == editPosition_) value += editChanging_ ? '}' : ']';
+  }
+  addField(frame, "Hours : Minutes : Seconds", value);
+  if (editPosition_ < 6) {
+    addField(frame, "Selection", "Digit " + String(editPosition_ + 1) + " of 6");
+    addField(frame, "Mode", editChanging_ ? "CHANGE DIGIT 0-9" : "SELECT POSITION");
+  } else {
+    addField(frame, "Selection", editPosition_ == 6 ? "[SAVE CHANGES]" : "[CANCEL / BACK]");
+    addField(frame, "Mode", "SELECT ACTION");
+  }
+  frame.subtitle = editChanging_
+      ? "Rotate: digit 0-9  |  Press: finish digit"
+      : "Rotate: select  |  Press: edit or activate";
+  frame.status = editorMessage_.length() ? editorMessage_
+      : "Valid range 00:00:01 through 99:59:59";
+}
+
+void MenuSystem::fillStreamingStatus(UiFrame& frame) const {
+  const A7670Snapshot& modem = sim_.snapshot();
+  addField(frame, "Streaming", streaming_.running() ? "RUNNING" : "STOPPED");
+  addField(frame, "Interval", streamIntervalLabel());
+  addField(frame, "GPS", settings_.simSendGps ? "Selected" : "Off");
+  addField(frame, "OBD-II", settings_.simSendObd ? "Selected" : "Off");
+  addField(frame, "OBD fields", String(streaming_.selectedObdFieldCount()) + " / 9");
+  addField(frame, "Config revision", String(settings_.streamConfigRevision));
+  addField(frame, "Heartbeat", sim_.endpointConfigured() ? "Every 30 seconds" : "Needs endpoint");
+  addField(frame, "Heartbeat OK", String(modem.successfulHeartbeats));
+  addField(frame, "Heartbeat failed", String(modem.failedHeartbeats));
+  addField(frame, "Last heartbeat", modem.lastHeartbeatMs
+      ? ageLabel(millis() - modem.lastHeartbeatMs) : "Not sent yet");
+  frame.status = streaming_.statusMessage();
+}
+
+void MenuSystem::fillSimConfiguration(UiFrame& frame) const {
+  const A7670Snapshot& sim = sim_.snapshot();
+  addField(frame, "Modem", sim_.stateLabel());
+  addField(frame, "AT response", sim.modemResponsive ? "Detected" : "No response");
+  addField(frame, "SIM card", sim.simReady ? "Ready" : "Not ready");
+  addField(frame, "LTE network", sim.networkRegistered ? "Registered" : "Not registered");
+  addField(frame, "LTE status", sim.registrationStatus < 0 ? "Unknown"
+      : String(sim.registrationStatus) + (sim.registrationStatus == 2 ? " / Searching"
+      : (sim.registrationStatus == 3 ? " / Denied" : "")));
+  addField(frame, "Radio / operator", String(sim.radioFunctionality) + " / " +
+      (sim.operatorName.length() ? sim.operatorName : "Not selected"));
+  addField(
+      frame,
+      "Signal CSQ",
+      sim.signalQuality == 99 ? "Unknown" : String(sim.signalQuality) + " / 31");
+  addField(frame, "Packet data", sim.packetAttached ? "Attached" : "Detached");
+  addField(frame, "PDP context", sim.pdpActive ? sim.ipAddress : "Inactive");
+  addField(frame, "APN", sim.apn.length() ? sim.apn : "SIM / modem default");
+  addField(frame, "Telemetry", sim_.telemetryRunning() ? "RUNNING" : "STOPPED / press START");
+  addField(
+      frame,
+      "Payload",
+      settings_.simSendGps
+          ? (settings_.simSendObd ? "GPS + OBD-II" : "GPS only")
+          : (settings_.simSendObd ? "OBD-II only" : "Status only"));
+  addField(
+      frame,
+      "Receiver",
+      sim_.endpointConfigured() ? sim_.endpointLabel() : "Not configured");
+  addField(
+      frame,
+      "Last HTTP",
+      sim.lastHttpStatus ? String(sim.lastHttpStatus) : "No POST yet");
+  addField(frame, "Posts", String(sim.successfulPosts) + " OK / " + sim.failedPosts + " failed");
+  addField(
+      frame,
+      "Last error",
+      sim.lastError.length() ? sim.lastError : "None");
+  frame.status = sim.sending
+      ? "Sending LTE request..."
+      : (sim_.ready()
+          ? (sim_.telemetryRunning() ? "Telemetry and heartbeat active."
+                                     : "Telemetry stopped; heartbeat remains active.")
+          : "Checking modem status.");
+}
+
+void MenuSystem::fillSimErrors(UiFrame& frame) const {
+  const A7670Snapshot& snapshot = sim_.snapshot();
+  addField(frame, "Current state", sim_.stateLabel());
+  addField(
+      frame,
+      "Active condition",
+      snapshot.lastError.length() ? snapshot.lastError : "None / recovered");
+  addField(frame, "Failures recorded", String(snapshot.failureCount));
+
+  if (snapshot.failureCount == 0) {
+    addField(frame, "Last failure", "None recorded");
+    addField(frame, "AT response", snapshot.modemResponsive ? "Detected" : "Not detected");
+    frame.status = "No A7670SA failure has been recorded.";
+    return;
+  }
+
+  addField(
+      frame,
+      "Failure age",
+      ageLabel(millis() - snapshot.lastFailureMs));
+  addField(frame, "Failure type", snapshot.lastFailureType);
+  addField(frame, "Failed stage", snapshot.lastFailureStage);
+  addField(frame, "Retry destination", snapshot.lastRetryTarget);
+  addTextChunks(frame, "Reason", snapshot.lastFailureReason, 2);
+  addTextChunks(frame, "AT command", snapshot.lastFailedCommand, 3);
+  addTextChunks(
+      frame,
+      "Response",
+      compactModemText(snapshot.lastFailureResponse),
+      3);
+  addField(
+      frame,
+      "HTTP status",
+      snapshot.lastHttpStatus ? String(snapshot.lastHttpStatus) : "Not applicable");
+  addField(frame, "Suggested check", simFailureHint(snapshot));
+  addField(frame, "Reconnect attempts", String(snapshot.reconnectCount));
+  frame.status = "Rotate to inspect each page. Press returns.";
+}
+
+void MenuSystem::fillSimEditor(UiFrame& frame, ScreenId screen) const {
+  const uint8_t digitCount = simEditorDigitCount(screen);
+  addField(
+      frame,
+      screen == ScreenId::SimIpEditor
+          ? "IPv4 address"
+          : (screen == ScreenId::SimPortEditor ? "TCP port" : "Six-digit key"),
+      simEditorValue(screen));
+
+  if (editPosition_ < digitCount) {
+    addField(
+        frame,
+        "Selection",
+        String("Digit ") + (editPosition_ + 1) + " of " + digitCount);
+    addField(frame, "Mode", editChanging_ ? "CHANGE DIGIT" : "SELECT POSITION");
+  } else {
+    addField(
+        frame,
+        "Selection",
+        editPosition_ == digitCount ? "[SAVE CHANGES]" : "[CANCEL / BACK]");
+    addField(frame, "Mode", "SELECT ACTION");
+  }
+
+  frame.subtitle = editChanging_
+      ? "Rotate: digit 0-9  |  Press: finish digit"
+      : "Rotate: select  |  Press: edit or activate";
+  frame.status = editorMessage_.length()
+      ? editorMessage_
+      : "Back cancels without saving.";
+}
+
+bool MenuSystem::handleSimEditorInput(InputEvent event) {
+  const ScreenId screen = currentScreen();
+  if (screen != ScreenId::SimIpEditor &&
+      screen != ScreenId::SimPortEditor &&
+      screen != ScreenId::SimKeyEditor) {
+    return false;
+  }
+
+  if (event == InputEvent::Back) {
+    editChanging_ = false;
+    editorMessage_ = "";
+    goBack();
+    return true;
+  }
+
+  if (event == InputEvent::RotateLeft || event == InputEvent::RotateRight) {
+    const int8_t direction = event == InputEvent::RotateRight ? 1 : -1;
+    const uint8_t digitCount = simEditorDigitCount(screen);
+    if (editChanging_ && editPosition_ < digitCount) {
+      int8_t value = static_cast<int8_t>(editDigits_[editPosition_]) + direction;
+      if (value < 0) value = 9;
+      if (value > 9) value = 0;
+      editDigits_[editPosition_] = static_cast<uint8_t>(value);
+      editorMessage_ = "";
+    } else {
+      const uint8_t positionCount = digitCount + 2;
+      int16_t next = static_cast<int16_t>(editPosition_) + direction;
+      if (next < 0) next = positionCount - 1;
+      if (next >= positionCount) next = 0;
+      editPosition_ = static_cast<uint8_t>(next);
+    }
+    return true;
+  }
+
+  if (event == InputEvent::Press) {
+    const uint8_t digitCount = simEditorDigitCount(screen);
+    if (editPosition_ < digitCount) {
+      editChanging_ = !editChanging_;
+    } else if (editPosition_ == digitCount) {
+      if (commitSimEditor(screen)) {
+        editChanging_ = false;
+        editorMessage_ = "";
+        goBack();
+      }
+    } else {
+      editChanging_ = false;
+      editorMessage_ = "";
+      goBack();
+    }
+    return true;
+  }
+  return true;
+}
+
+void MenuSystem::beginSimEditor(ScreenId screen) {
+  streaming_.stop();
+  editPosition_ = 0;
+  editChanging_ = false;
+  editorMessage_ = "";
+  if (screen == ScreenId::SimIpEditor) {
+    for (uint8_t octet = 0; octet < 4; ++octet) {
+      const uint8_t value = settings_.simServerIp[octet];
+      editDigits_[octet * 3] = value / 100;
+      editDigits_[octet * 3 + 1] = (value / 10) % 10;
+      editDigits_[octet * 3 + 2] = value % 10;
+    }
+  } else {
+    const uint32_t value = screen == ScreenId::SimPortEditor
+        ? settings_.simServerPort
+        : settings_.simAccessKey;
+    const uint8_t length = screen == ScreenId::SimPortEditor ? 5 : 6;
+    uint32_t divisor = 1;
+    for (uint8_t index = 1; index < length; ++index) divisor *= 10;
+    for (uint8_t index = 0; index < length; ++index) {
+      editDigits_[index] = (value / divisor) % 10;
+      divisor /= 10;
+    }
+  }
+  pushScreen(screen);
+}
+
+bool MenuSystem::handleStreamingIntervalInput(InputEvent event) {
+  if (currentScreen() != ScreenId::StreamingInterval) return false;
+
+  if (event == InputEvent::Back) {
+    editChanging_ = false;
+    editorMessage_ = "";
+    goBack();
+    return true;
+  }
+
+  if (event == InputEvent::RotateLeft || event == InputEvent::RotateRight) {
+    const int8_t direction = event == InputEvent::RotateRight ? 1 : -1;
+    if (editChanging_ && editPosition_ < 6) {
+      int8_t value = static_cast<int8_t>(editDigits_[editPosition_]) + direction;
+      if (value < 0) value = 9;
+      if (value > 9) value = 0;
+      editDigits_[editPosition_] = static_cast<uint8_t>(value);
+      editorMessage_ = "";
+    } else {
+      int8_t next = static_cast<int8_t>(editPosition_) + direction;
+      if (next < 0) next = 7;
+      if (next > 7) next = 0;
+      editPosition_ = static_cast<uint8_t>(next);
+    }
+    return true;
+  }
+
+  if (event == InputEvent::Press) {
+    if (editPosition_ < 6) {
+      editChanging_ = !editChanging_;
+    } else if (editPosition_ == 6) {
+      const uint32_t hours = editDigits_[0] * 10UL + editDigits_[1];
+      const uint32_t minutes = editDigits_[2] * 10UL + editDigits_[3];
+      const uint32_t seconds = editDigits_[4] * 10UL + editDigits_[5];
+      const uint32_t totalSeconds = hours * 3600UL + minutes * 60UL + seconds;
+      if (minutes > 59 || seconds > 59 || totalSeconds == 0) {
+        editorMessage_ = "Minutes/seconds: 00-59. Minimum: 1 second.";
+        editPosition_ = minutes > 59 ? 2 : (seconds > 59 ? 4 : 0);
+        editChanging_ = false;
+      } else {
+        streaming_.setIntervalMs(totalSeconds * 1000UL);
+        editChanging_ = false;
+        editorMessage_ = "";
+        goBack();
+      }
+    } else {
+      editChanging_ = false;
+      editorMessage_ = "";
+      goBack();
+    }
+    return true;
+  }
+  return true;
+}
+
+void MenuSystem::beginStreamingIntervalEditor() {
+  uint32_t totalSeconds = settings_.simSendIntervalMs / 1000UL;
+  const uint8_t hours = static_cast<uint8_t>(totalSeconds / 3600UL);
+  const uint8_t minutes = static_cast<uint8_t>((totalSeconds / 60UL) % 60UL);
+  const uint8_t seconds = static_cast<uint8_t>(totalSeconds % 60UL);
+  editDigits_[0] = hours / 10;
+  editDigits_[1] = hours % 10;
+  editDigits_[2] = minutes / 10;
+  editDigits_[3] = minutes % 10;
+  editDigits_[4] = seconds / 10;
+  editDigits_[5] = seconds % 10;
+  editPosition_ = 0;
+  editChanging_ = false;
+  editorMessage_ = "";
+  pushScreen(ScreenId::StreamingInterval);
+}
+
+bool MenuSystem::commitSimEditor(ScreenId screen) {
+  if (screen == ScreenId::SimIpEditor) {
+    uint8_t address[4] = {};
+    for (uint8_t octet = 0; octet < 4; ++octet) {
+      const uint16_t value =
+          editDigits_[octet * 3] * 100 +
+          editDigits_[octet * 3 + 1] * 10 +
+          editDigits_[octet * 3 + 2];
+      if (value > 255) {
+        editorMessage_ = String("Octet ") + (octet + 1) + " must be 000-255.";
+        editPosition_ = octet * 3;
+        editChanging_ = false;
+        return false;
+      }
+      address[octet] = static_cast<uint8_t>(value);
+    }
+    memcpy(settings_.simServerIp, address, sizeof(address));
+  } else {
+    const uint8_t length = screen == ScreenId::SimPortEditor ? 5 : 6;
+    uint32_t value = 0;
+    for (uint8_t index = 0; index < length; ++index) {
+      value = value * 10 + editDigits_[index];
+    }
+    if (screen == ScreenId::SimPortEditor) {
+      if (value == 0 || value > 65535) {
+        editorMessage_ = "Port must be 00001-65535.";
+        editPosition_ = 0;
+        editChanging_ = false;
+        return false;
+      }
+      settings_.simServerPort = static_cast<uint16_t>(value);
+    } else {
+      settings_.simAccessKey = value;
+    }
+  }
+  sim_.setEndpoint(
+      settings_.simServerIp,
+      settings_.simServerPort,
+      settings_.simAccessKey);
+  settingsStore_.saveSim(settings_);
+  return true;
+}
+
+uint8_t MenuSystem::simEditorDigitCount(ScreenId screen) const {
+  if (screen == ScreenId::SimIpEditor) return 12;
+  return screen == ScreenId::SimPortEditor ? 5 : 6;
+}
+
+String MenuSystem::simEditorValue(ScreenId screen) const {
+  const uint8_t digitCount = simEditorDigitCount(screen);
+  String value;
+  value.reserve(20);
+  for (uint8_t index = 0; index < digitCount; ++index) {
+    if (screen == ScreenId::SimIpEditor && index > 0 && index % 3 == 0) {
+      value += '.';
+    }
+    if (index == editPosition_) value += editChanging_ ? '{' : '[';
+    value += editDigits_[index];
+    if (index == editPosition_) value += editChanging_ ? '}' : ']';
+  }
+  return value;
+}
+
+String MenuSystem::compactModemText(const String& value) const {
+  String output = value;
+  output.replace("\r", " ");
+  output.replace("\n", " ");
+  output.trim();
+  while (output.indexOf("  ") >= 0) output.replace("  ", " ");
+  return output.length() ? output : "No response captured";
+}
+
+String MenuSystem::simFailureHint(const A7670Snapshot& snapshot) const {
+  String context = snapshot.lastFailureReason + " " +
+      snapshot.lastFailureStage + " " + snapshot.lastFailureType;
+  context.toLowerCase();
+  if (context.indexOf("no response") >= 0 ||
+      context.indexOf("synchron") >= 0) {
+    return "Power/GND/TX/RX/baud";
+  }
+  if (context.indexOf("sim") >= 0) return "SIM seated and unlocked";
+  if (context.indexOf("register") >= 0 ||
+      context.indexOf("signal") >= 0) {
+    return "Antenna/LTE coverage";
+  }
+  if (context.indexOf("packet") >= 0 ||
+      context.indexOf("pdp") >= 0 ||
+      context.indexOf("apn") >= 0) {
+    return "APN and SIM data plan";
+  }
+  if (context.indexOf("http") >= 0 ||
+      context.indexOf("receiver") >= 0 ||
+      context.indexOf("settings") >= 0) {
+    return "IP/port/key/receiver";
+  }
+  return "Review AT cmd/response";
+}
+
+void MenuSystem::addTextChunks(
+    UiFrame& frame,
+    const String& label,
+    const String& value,
+    uint8_t maxChunks) const {
+  const String text = value.length() ? value : "None";
+  constexpr uint8_t CHUNK_LENGTH = 23;
+  uint8_t chunk = 0;
+  for (uint16_t start = 0;
+       start < text.length() && chunk < maxChunks;
+       start += CHUNK_LENGTH, ++chunk) {
+    addField(
+        frame,
+        maxChunks > 1 ? label + " " + String(chunk + 1) : label,
+        text.substring(start, start + CHUNK_LENGTH));
+  }
+}
+
+String MenuSystem::ipLabel(const uint8_t ip[4]) const {
+  return String(ip[0]) + "." + ip[1] + "." + ip[2] + "." + ip[3];
+}
+
+String MenuSystem::streamIntervalLabel() const {
+  const uint32_t totalSeconds = settings_.simSendIntervalMs / 1000UL;
+  const uint8_t hours = static_cast<uint8_t>(totalSeconds / 3600UL);
+  const uint8_t minutes = static_cast<uint8_t>((totalSeconds / 60UL) % 60UL);
+  const uint8_t seconds = static_cast<uint8_t>(totalSeconds % 60UL);
+  char value[9];
+  snprintf(value, sizeof(value), "%02u:%02u:%02u", hours, minutes, seconds);
+  return String(value);
+}
+
+uint8_t MenuSystem::selectedFieldCount(uint16_t mask) const {
+  uint8_t count = 0;
+  while (mask) {
+    count += mask & 1U;
+    mask >>= 1;
+  }
+  return count;
 }
 
 void MenuSystem::fillAbout(UiFrame& frame) const {
   addField(frame, "Project", "Roderic Systems RoadLink");
   addField(frame, "Controller", "ESP32 + MCP2515 8 MHz");
-  addField(frame, "UI architecture", "UiModel -> TFT / WebSocket / Serial");
+  addField(frame, "UI architecture", "UiModel -> TFT only");
   addField(frame, "TFT", "ILI9341 320x240 landscape");
-  addField(frame, "Phone transport", "Local HTTP + live WebSocket");
+  addField(frame, "Remote control", "Semantic LTE config heartbeat");
   addField(frame, "Navigation", "Rotary tree with explicit Back");
   addField(frame, "CAN diagnostics", "Passive monitor + OBD-II ISO-TP");
+  addField(frame, "Cellular", "A7670SA LTE HTTP telemetry");
 }
 
 bool MenuSystem::ensureObdTransmitMode() {

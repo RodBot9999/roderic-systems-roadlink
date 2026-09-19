@@ -19,9 +19,8 @@
 | Encoder DT | 26 |
 | Encoder button | 27 |
 | GPS PPS | 34 |
-| SIM800L RST | 2 |
-| ESP32 TX to SIM800L RX | 16 |
-| ESP32 RX from SIM800L TX | 17 |
+| ESP32 TX to A7670SA RX | 16 |
+| ESP32 RX from A7670SA TX | 17 |
 | GPS TX -> ESP32 RX | 35 |
 | GPS RX <- ESP32 TX | 32 |
 | MCP2515 CS | 23 |
@@ -41,6 +40,10 @@ The GPIO table follows the assembled RoadLink carrier PCB. It is not a generic
 ESP32 wiring suggestion: the TFT control pins and custom MCP2515 SPI mapping
 were selected from the connections verified on the physical prototype.
 
+The A7670SA connection is UART-only. Its reset, sleep/DTR, and PWRKEY pins are
+not connected to the ESP32, so the firmware never attempts a hardware reset or
+sleep transition.
+
 ## Uploading
 
 1. Clone or download the repository.
@@ -51,12 +54,20 @@ were selected from the connections verified on the physical prototype.
 6. Verify/compile before uploading.
 7. Upload and open Serial Monitor at `115200` baud.
 
-Before cellular testing, configure `SIM_APN` in `AppConfig.h`. Start the
+Before cellular testing, configure `SIM_APN` in `AppConfig.h` if the SIM/modem
+does not already provide a working default APN. Start the
 desktop monitor, then enter its displayed public IP, port, and access key under
-the main-menu `SIM / Cellular` page; RoadLink saves them in NVS.
+the main-menu `A7670SA / Cellular` page; RoadLink saves them in NVS. Each value
+is edited digit by digit: press a selected digit to change it, press again to
+return to digit selection, then choose `SAVE CHANGES`.
+Wait for status checks to complete and select green `START` to send telemetry.
+Boot and re-enable send no HTTP requests. `STOP` prevents further posts.
+Disabling checks does not remove power from the modem. Main-menu `Reboot`
+requests a UART modem reset and repeats ESP32 startup, retaining settings but
+leaving telemetry stopped.
 
 The startup diagnostics wait a bounded interval for GPS serial bytes and an
-enabled SIM800L AT response. Missing modules produce overridable warnings.
+enabled A7670SA AT response. Missing modules produce overridable warnings.
 `OVERRIDE AND CONTINUE` is initially selected so one press proceeds.
 
 ## Expected startup
@@ -102,13 +113,16 @@ Check MCP2515 power, CS `GPIO23`, INT `GPIO4`, SPI wiring, oscillator selection,
 
 Confirm the phone is connected to the RoadLink access point and open `http://192.168.4.1` directly.
 
-### SIM800L does not register
+### A7670SA does not register
 
-Check the SIM card, antenna, carrier 2G/GSM availability, UART direction, common ground, and module power supply. The SIM800L can draw large current bursts and should not be powered directly from the ESP32 3.3 V pin.
+Check the SIM card, LTE antenna, carrier LTE coverage, APN, UART direction,
+common ground, and module power supply. Use the voltage and current capacity
+specified for the exact A7670SA breakout board; do not power it from an ESP32
+GPIO or assume the ESP32 3.3 V regulator is sufficient.
 
 Before running the full firmware, use the standalone
-[SIM800L baud scanner and AT terminal](https://github.com/RodBot9999/roderic-systems-roadlink/tree/codex/current-build-tools/tools/SIM800L_Baud_Terminal)
-from the current-build branch to verify the modem's UART rate and `AT` response.
+[A7670SA baud scanner and AT terminal](../tools/A7670SA_Baud_Terminal/README.md)
+to verify the modem's UART rate and `AT` response.
 A modem should answer plain `AT` even without a SIM card. Confirm that ESP32
-GPIO16 transmits to SIM800L RX and that SIM800L TX drives ESP32 GPIO17. Never
-apply the modem's 4 V supply to an ESP32 GPIO.
+GPIO16 transmits to A7670SA RX and that A7670SA TX drives ESP32 GPIO17. Never
+apply the modem power rail to an ESP32 GPIO.

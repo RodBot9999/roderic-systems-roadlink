@@ -58,8 +58,17 @@ InputEvent EncoderInput::poll() {
     stableButtonState_ = reading;
 
     if (stableButtonState_ == LOW) {
+      buttonPressedMs_ = millis();
+      backReported_ = false;
+    } else if (!backReported_) {
       return InputEvent::Press;
     }
+  }
+
+  if (stableButtonState_ == LOW && !backReported_ &&
+      millis() - buttonPressedMs_ >= AppConfig::BUTTON_BACK_HOLD_MS) {
+    backReported_ = true;
+    return InputEvent::Back;
   }
 
   return InputEvent::None;

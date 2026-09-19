@@ -1,9 +1,11 @@
 # Arduino build output
 build/
+.build/
 *.bin
 *.elf
 *.hex
 *.map
+*.exe
 
 # Editor and operating-system files
 .vscode/
@@ -16,3 +18,7 @@ desktop.ini
 *.zip
 *.tmp
 *.bak
+__pycache__/
+*.pyc
+roadlink-telemetry.jsonl
+roadlink-monitor.json
