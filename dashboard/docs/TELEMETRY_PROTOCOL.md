@@ -1,6 +1,6 @@
 # RoadLink telemetry receiver and protocol
 
-RoadLink Fleet 0.2.0 implements the same direct HTTP receiver as the current RoadLink repository's Windows monitor. It is useful for prototypes before a hosted fleet service exists.
+RoadLink Fleet 0.3.0 implements the direct HTTP telemetry receiver plus the A7670SA firmware's bidirectional heartbeat configuration protocol. It is useful for prototypes before a hosted fleet service exists.
 
 ## Current topology
 

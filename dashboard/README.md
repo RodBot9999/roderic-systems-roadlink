@@ -2,7 +2,7 @@
 
 RoadLink Fleet is a Windows desktop dashboard for monitoring multiple RoadLink vehicle telemetry units. It is an Electron + React application so the interface stays approachable, the code remains easy to extend, and the application can be packaged as a normal Windows `.exe`.
 
-Version 0.2.0 adds a real, firmware-compatible telemetry receiver and a separate Python Virtual RoadLink. The dashboard remains a normal Electron Windows application; networking and privileged operations run outside the renderer.
+Version 0.3.0 adds the bidirectional streaming configuration panel and independent heartbeat receiver. The dashboard remains a normal Electron Windows application; networking and privileged operations run outside the renderer.
 
 ## What works now
 
