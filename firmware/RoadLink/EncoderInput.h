@@ -28,4 +28,6 @@ private:
   bool lastButtonReading_ = HIGH;
   bool stableButtonState_ = HIGH;
   uint32_t lastButtonChangeMs_ = 0;
+  uint32_t buttonPressedMs_ = 0;
+  bool backReported_ = false;
 };

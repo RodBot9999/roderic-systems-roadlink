@@ -5,23 +5,22 @@
 **RoadLink is a custom ESP32 vehicle diagnostics and telemetry platform built
 around a purpose-designed carrier PCB.** It combines CAN and OBD-II tools, GPS
 tracking, a rotary-controlled TFT interface, a local phone dashboard, and
-optional SIM800L cellular telemetry in one standalone unit.
+optional A7670SA cellular telemetry in one standalone unit.
 
 The system starts in CAN listen-only mode and keeps its hardware services
 separate from the visible interface. A single UI model drives the physical
 display, browser dashboard, and optional serial mirror, so every control surface
 shows the same state.
 
-> **Development status:** `main` contains the project documentation and baseline
-> release. The current firmware and diagnostic utilities are published on
-> [`codex/current-build-tools`](https://github.com/RodBot9999/roderic-systems-roadlink/tree/codex/current-build-tools).
+> **Development status:** `main` contains the baseline release. Active firmware
+> and dashboard work is based on the `development` branch.
 
 ## PCB design and construction
 
 RoadLink began as a way to replace a loose collection of development boards and
 test wiring with one organized, serviceable prototype. The carrier PCB places
 the ESP32 at the center of the system and provides dedicated connections for the
-CAN controller, GPS receiver, TFT, rotary encoder, SIM800L, power filtering, and
+CAN controller, GPS receiver, TFT, rotary encoder, A7670SA, power filtering, and
 logic-level conditioning. The PCB was designed in **EasyEDA Pro** and then
 assembled as the working RoadLink prototype.
 
@@ -29,13 +28,13 @@ The board was designed around practical pin use:
 
 - The ILI9341 TFT and MCP2515 share the SPI clock and data lines, while separate
   chip-select pins keep the two peripherals independent.
-- GPS and SIM800L use separate hardware UARTs, allowing both services to run
+- GPS and A7670SA use separate hardware UARTs, allowing both services to run
   without blocking CAN processing or the interface.
 - The rotary encoder provides complete local navigation without requiring a
   phone or computer.
 - Bulk capacitance and short power paths are placed near high-demand modules,
   while voltage-level handling is kept explicit for modules such as the
-  SIM800L.
+  A7670SA.
 - GPIO assignments in `AppConfig.h` reflect the assembled prototype and the
   pins that worked reliably during hardware testing, rather than a generic
   development-board example.
@@ -76,7 +75,7 @@ flowchart LR
     Encoder["Rotary encoder"] --> ESP
     ESP --> TFT["ILI9341 TFT"]
     ESP --> Web["Local Wi-Fi dashboard"]
-    ESP --> SIM["SIM800L telemetry"]
+    ESP --> SIM["A7670SA telemetry"]
     SIM --> Receiver["RoadLink desktop receiver"]
 ```
 
@@ -87,9 +86,9 @@ flowchart LR
 - ECU discovery, live PIDs, DTC reading and clearing, and VIN retrieval
 - GPS position, motion, time, PPS, and NMEA statistics
 - 320x240 ILI9341 TFT interface
-- Single rotary encoder navigation with explicit Back actions
+- Single rotary encoder navigation with explicit Back actions and manual detail pages
 - Local ESP32 Wi-Fi access point and live WebSocket dashboard
-- SIM800L HTTP telemetry with TFT-edited, NVS-persisted receiver settings
+- A7670SA HTTP telemetry with digit-by-digit receiver editors and persistent failure details
 - Independent GPS and OBD-II telemetry selection
 - Windows telemetry monitor with JSONL logging and temporary port mapping
 - Startup diagnostics that report optional-module warnings without blocking boot
@@ -101,14 +100,15 @@ flowchart LR
 |---|---:|
 | Encoder CLK / DT / button | 25 / 26 / 27 |
 | GPS PPS / RX / TX | 34 / 35 / 32 |
-| SIM800L RST / RX / TX | 2 / 17 / 16 |
+| A7670SA RX / TX | 17 / 16 |
 | MCP2515 CS / INT | 23 / 4 |
 | Shared SPI SCK / MISO / MOSI | 5 / 19 / 18 |
 | TFT CS / DC / RESET | 12 / 14 / 15 |
 
 UART directions are named from the ESP32 perspective: GPIO16 transmits to the
-SIM800L RX input, while GPIO17 receives from the SIM800L TX output. See
+A7670SA RX input, while GPIO17 receives from the A7670SA TX output. See
 [Getting Started](docs/GETTING_STARTED.md) before wiring hardware.
+Reset, sleep/DTR, and PWRKEY are not connected to ESP32 GPIOs in this build.
 
 ## Software architecture
 
@@ -116,7 +116,7 @@ Hardware and protocol services update independently in the main loop. They
 publish snapshots rather than drawing screens directly:
 
 ```text
-CAN / OBD / GPS / SIM services
+CAN / OBD / GPS / cellular services
               |
               v
           MenuSystem
@@ -128,7 +128,7 @@ CAN / OBD / GPS / SIM services
        TFT   Web   Serial
 ```
 
-The SIM800L implementation follows the same modular pattern and uses a
+The A7670SA implementation follows the same modular pattern and uses a
 non-blocking AT-command state machine. A missing modem or GPS receiver produces
 a startup warning but does not prevent the main menu from opening.
 
@@ -136,16 +136,18 @@ a startup warning but does not prevent the main menu from opening.
 
 ```text
 assets/                         Splash artwork and project media
+dashboard/                      RoadLink Fleet Windows desktop dashboard
 docs/
   ARCHITECTURE.md               Hardware and software architecture
   CHANGELOG.txt                 Implementation history
   GETTING_STARTED.md            Wiring, dependencies, and first upload
-  SIM800L_TELEMETRY.md          Cellular sender and receiver setup
+  A7670SA_TELEMETRY.md          Cellular sender and receiver setup
 firmware/
   RoadLink/                     Arduino sketch and firmware modules
 tools/                         Current-build branch
   roadlink_monitor/             Windows GPS/OBD telemetry receiver
-  SIM800L_Baud_Terminal/        Standalone modem baud scanner and AT terminal
+  A7670SA_Baud_Terminal/        Standalone modem baud scanner and AT terminal
+  virtual_roadlink/             Standalone Python RoadLink telemetry simulator
 ```
 
 ## Quick start
@@ -162,10 +164,15 @@ The splash waits for an encoder press. Startup diagnostics then check the core
 services and advance automatically after three seconds; pressing the encoder
 skips the remaining diagnostic delay.
 
+Cellular startup and warm re-enable are status-only: no HTTP telemetry is sent
+until the green `START` action is selected. `STOP` prevents further posts.
+Main-menu `Reboot` repeats ESP32 startup and requests a UART modem reset,
+without cutting power to the externally powered modules.
+
 For the complete bring-up procedure, see
 [Getting Started](docs/GETTING_STARTED.md). Cellular configuration and power
 requirements are documented in
-[SIM800L Telemetry](docs/SIM800L_TELEMETRY.md).
+[A7670SA Telemetry](docs/A7670SA_TELEMETRY.md).
 
 ## Safety
 

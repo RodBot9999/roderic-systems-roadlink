@@ -20,10 +20,6 @@ void GpsService::update() {
     statistics_.bytesReceived++;
     statistics_.lastByteMs = millis();
 
-    if (rawSerialEnabled_) {
-      Serial.write(character);
-    }
-
     if (character == '\n') {
       sentenceBuffer_[sentenceIndex_] = '\0';
       sentenceIndex_ = 0;
@@ -139,6 +135,7 @@ void GpsService::parseGga(const String& sentence) {
       snapshot_.fixQuality != "0" &&
       snapshot_.latitudeRaw.length() > 0 &&
       snapshot_.longitudeRaw.length() > 0;
+  if (snapshot_.positionValid) snapshot_.lastFixMs = millis();
 
   statistics_.ggaCount++;
 }
@@ -161,9 +158,10 @@ void GpsService::parseRmc(const String& sentence) {
       snapshot_.longitudeRaw,
       snapshot_.longitudeDirection);
 
-  if (snapshot_.rmcStatus == "A") {
-    snapshot_.positionValid = true;
-  }
+  snapshot_.positionValid = snapshot_.rmcStatus == "A" &&
+      snapshot_.latitudeRaw.length() > 0 &&
+      snapshot_.longitudeRaw.length() > 0;
+  if (snapshot_.positionValid) snapshot_.lastFixMs = millis();
 
   statistics_.rmcCount++;
 }
@@ -191,14 +189,6 @@ void GpsService::resetStatistics() {
   lastSentenceType_ = "NONE";
 }
 
-void GpsService::setRawSerialEnabled(bool enabled) {
-  rawSerialEnabled_ = enabled;
-}
-
-bool GpsService::rawSerialEnabled() const {
-  return rawSerialEnabled_;
-}
-
 const GpsSnapshot& GpsService::snapshot() const {
   return snapshot_;
 }
@@ -216,7 +206,8 @@ const String& GpsService::lastSentenceType() const {
 }
 
 bool GpsService::hasFix() const {
-  return snapshot_.positionValid;
+  return snapshot_.positionValid && snapshot_.lastFixMs != 0 &&
+      millis() - snapshot_.lastFixMs <= AppConfig::GPS_FIX_STALE_MS;
 }
 
 uint32_t GpsService::lastByteAgeMs() const {

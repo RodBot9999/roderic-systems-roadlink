@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include "AppConfig.h"
 
 struct GpsSnapshot {
   String utcTime;
@@ -20,6 +21,7 @@ struct GpsSnapshot {
   double latitudeDecimal = 0.0;
   double longitudeDecimal = 0.0;
   bool positionValid = false;
+  uint32_t lastFixMs = 0;
 };
 
 struct GpsStatistics {
@@ -42,9 +44,6 @@ public:
   void begin(uint32_t baud, int8_t rxPin, int8_t txPin, uint8_t ppsPin);
   void update();
   void resetStatistics();
-  void setRawSerialEnabled(bool enabled);
-  bool rawSerialEnabled() const;
-
   const GpsSnapshot& snapshot() const;
   const GpsStatistics& statistics() const;
   const String& lastSentence() const;
@@ -66,8 +65,6 @@ private:
   HardwareSerial serial_;
   uint8_t ppsPin_ = 255;
   bool lastPpsState_ = LOW;
-  bool rawSerialEnabled_ = false;
-
   char sentenceBuffer_[160] = {};
   uint8_t sentenceIndex_ = 0;
 
