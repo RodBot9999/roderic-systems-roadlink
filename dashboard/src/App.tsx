@@ -40,6 +40,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { StreamingPanel } from "./StreamingPanel";
 import type {
   LayerGroup,
   Map as LeafletMap,
@@ -654,6 +655,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showReceiver, setShowReceiver] = useState(false);
   const [receiverState, setReceiverState] = useState<ReceiverState | null>(null);
+  const [showStreaming, setShowStreaming] = useState(false);
   const [receiverPortDraft, setReceiverPortDraft] = useState("8080");
   const [receiverBusy, setReceiverBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -967,6 +969,7 @@ export default function App() {
           <button className="nav-item" onClick={() => setToast("Fleet-wide reports are planned after live ingestion")}><BarChart3 size={18} /><span>Analytics</span><small>Soon</small></button>
           <button className="nav-item" onClick={() => setToast(settings.demoMode ? "All demo devices are visible in the fleet list" : `${liveDevices.length} authenticated live device${liveDevices.length === 1 ? "" : "s"}`)}><Database size={18} /><span>Devices</span><span className="nav-count">{activeDevices.length}</span></button>
           <button className="nav-item" onClick={() => setShowReceiver(true)}><Network size={18} /><span>Receiver</span><small>{receiverHealthy ? "Live" : "Open"}</small></button>
+          <button className="nav-item" onClick={() => setShowStreaming(true)}><Sliders size={18} /><span>Streaming</span><small>{receiverState?.streamingDevices?.length ?? 0}</small></button>
         </nav>
 
         <div className="sidebar-spacer" />
@@ -1076,10 +1079,10 @@ export default function App() {
               <div><MapPin size={15} /><span>GPS</span><strong>{selected.status === "offline" ? "Last known" : "3 m fix"}</strong></div>
             </div>
 
-            <div className="reporting-control">
+            {settings.demoMode ? <div className="reporting-control">
               <div><span>Normal reporting rate</span><small>{settings.demoMode ? "Focus temporarily overrides this to 1 second." : "Saved locally; firmware command delivery comes later."}</small></div>
               <label><select value={selected.pollRate} onChange={(event) => updatePollRate(selected.id, Number(event.target.value))}>{pollOptions.map((option) => <option key={option} value={option}>{secondsLabel(option)}</option>)}</select><ChevronDown size={14} /></label>
-            </div>
+            </div> : <button className="secondary-button" onClick={() => setShowStreaming(true)}><Sliders size={16} /> Configure streaming</button>}
 
             <div className="device-meta">
               <div><span>IMEI</span><strong>{selected.imei}</strong></div>
@@ -1136,6 +1139,7 @@ export default function App() {
         </div>
       )}
 
+      {showStreaming && <StreamingPanel devices={receiverState?.streamingDevices ?? []} receiverRunning={receiverHealthy} onState={setReceiverState} onClose={() => setShowStreaming(false)} />}
       {showReceiver && (
         <div className="modal-backdrop" onMouseDown={() => setShowReceiver(false)}>
           <div className="modal receiver-modal" onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="receiver-title">

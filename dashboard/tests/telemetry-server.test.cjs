@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { TelemetryReceiver } = require("../electron/telemetry-server.cjs");
+const { StreamingConfigStore } = require("../electron/streaming-config.cjs");
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -84,4 +85,60 @@ test("receiver exposes health and rejects invalid JSON and credentials", async (
   assert.equal((await request(port, "POST", "/telemetry", { access_key: "000000" })).status, 401);
   assert.equal((await request(port, "POST", "/wrong", {})).status, 404);
   assert.equal(receiver.state().packetCount, 0);
+});
+
+const baseConfig = { revision: 1, running: false, gps: true, obd: true, obd_fields: 135, interval_seconds: 10 };
+
+test("heartbeats deliver durable settings and confirm application without emitting telemetry", async (context) => {
+  const dataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "roadlink-config-"));
+  const receiver = new TelemetryReceiver({ dataDirectory });
+  const port = await freePort();
+  await receiver.updateConfig({ port, accessKey: "123456", enabled: true });
+  context.after(async () => { await receiver.stop(); fs.rmSync(dataDirectory, { recursive: true, force: true }); });
+  let telemetryEvents = 0;
+  receiver.on("telemetry", () => ++telemetryEvents);
+  const report = { access_key: "123456", device: "roadlink", config: baseConfig };
+  assert.equal((await request(port, "POST", "/heartbeat", { ...report, access_key: "000000" })).status, 401);
+  assert.equal((await request(port, "POST", "/heartbeat", { ...report, config: { ...baseConfig, gps: "yes" } })).status, 400);
+  assert.equal(receiver.state().streamingDevices.length, 0);
+  assert.equal((await request(port, "POST", "/heartbeat", report)).status, 200);
+  const id = receiver.state().streamingDevices[0].id;
+  receiver.queueStreamingConfig(id, { running: true, obd_fields: 5, interval_seconds: 42 }, 1);
+  const reloaded = new StreamingConfigStore(dataDirectory);
+  assert.equal(reloaded.list()[0].desired.interval_seconds, 42);
+  assert.throws(() => receiver.queueStreamingConfig(id, { gps: false }, 1), /Settings changed/);
+  assert.throws(() => receiver.queueStreamingConfig(id, { interval_seconds: 0 }, 2), /Invalid streaming/);
+  const delivery = await request(port, "POST", "/heartbeat", report);
+  assert.equal(delivery.body.config.revision, 2);
+  assert.equal(delivery.body.config.obd_fields, 5);
+  assert.ok(Buffer.byteLength(JSON.stringify(delivery.body)) < 1536);
+  assert.deepEqual((await request(port, "POST", "/heartbeat", report)).body, delivery.body);
+  assert.equal(receiver.state().streamingDevices[0].status, "pending");
+  await request(port, "POST", "/heartbeat", { ...report, config: { ...delivery.body.config, running: false } });
+  assert.equal(receiver.state().streamingDevices[0].status, "pending");
+  await request(port, "POST", "/heartbeat", { ...report, config: delivery.body.config });
+  assert.equal(receiver.state().streamingDevices[0].status, "applied");
+  assert.equal(receiver.state().streamingDevices[0].desired, null);
+  assert.equal(receiver.state().packetCount, 0);
+  assert.equal(telemetryEvents, 0);
+  assert.equal(fs.existsSync(receiver.logPath), false);
+  receiver.queueStreamingConfig(id, { gps: false }, 2);
+  await request(port, "POST", "/telemetry", { ...report, config: { ...delivery.body.config, revision: 4, obd_fields: 128 } });
+  assert.equal(receiver.state().streamingDevices[0].status, "changed-on-device");
+  assert.equal(receiver.state().streamingDevices[0].applied.obd_fields, 128);
+  assert.equal(receiver.state().streamingDevices[0].desired, null);
+  assert.equal(receiver.state().packetCount, 1);
+});
+
+test("configuration conflicts are visible and device queues remain isolated", (context) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "roadlink-config-"));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const store = new StreamingConfigStore(directory);
+  store.report({ device_id: "RL-1", config: baseConfig }, "127.0.0.1", true);
+  store.report({ device_id: "RL-2", config: baseConfig }, "127.0.0.1", true);
+  store.queue("RL-1", { gps: false }, 1);
+  assert.equal(store.report({ device_id: "RL-2", config: baseConfig }, "127.0.0.1", true), null);
+  store.report({ device_id: "RL-1", config: { ...baseConfig, revision: 2, obd_fields: 3 } }, "127.0.0.1", true);
+  assert.equal(store.list()[0].status, "conflict");
+  assert.equal(store.list()[0].desired, null);
 });

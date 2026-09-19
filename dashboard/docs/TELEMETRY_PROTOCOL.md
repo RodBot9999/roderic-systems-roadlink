@@ -116,6 +116,41 @@ RoadLink + A7670SA --HTTPS/MQTT over TLS--> hosted ingest + durable database
 
 Each physical RoadLink should then have a unique secret or client certificate. A hosted service also solves CGNAT, supports several dashboard PCs, preserves history while the PC is off, and provides a real two-way command queue.
 
-## Reporting-rate limitation
+## Streaming configuration and heartbeat
 
-The current firmware sends telemetry outward but does not poll or acknowledge commands. The desktop can save a desired normal rate locally, but it cannot honestly change a physical unit's interval or raise it during focus yet. That requires a two-way firmware command path. Demo Mode still demonstrates the intended one-second focus behavior without presenting it as active on real hardware.
+The A7670SA firmware sends authenticated `POST /heartbeat` requests approximately
+every 30 seconds, independently of telemetry START/STOP. Both heartbeat and
+telemetry requests may contain this complete configuration:
+
+```json
+{"revision":7,"running":false,"gps":true,"obd":true,"obd_fields":135,"interval_seconds":10}
+```
+
+The receiver validates booleans, revision 1–4294967295, field mask 0–511 and
+interval 1–359999 seconds. A heartbeat requires a valid `config` object. Legacy
+telemetry without `config` remains supported. Heartbeats increment their own
+counter and update device presence without creating telemetry events or log rows.
+
+Desktop changes are saved in `streaming-config.json` under Electron's user-data
+directory, with a newer revision. On the next authenticated request, the receiver
+returns `{"ok":true,"config":{...}}`. The response remains below the firmware's
+1536-byte configuration limit. Pending changes survive app restarts and are
+resent until the device reports that revision and those values. A deferred START
+remains pending while the firmware reports the same settings but running=false.
+
+Newer device-side revisions supersede pending desktop changes. Equal revisions
+with different field settings produce a visible conflict and adopt the device's
+reported values. Desktop edits include the expected revision so a stale editor
+cannot overwrite a newly received configuration. The UI distinguishes saved
+intent from the device's actual running state, and indicates offline devices.
+
+The Streaming panel has real desktop controls, not screen mirroring. Its OBD bit
+mapping is RPM 0, speed 1, coolant 2, throttle 3, manifold pressure 4, intake
+temperature 5, ignition timing 6, ECU voltage 7, fuel level 8. Choices are
+retained when an entire module is disabled. The device performs selected PID
+polling independently of which menu is displayed.
+
+Physical-device focus does not automatically change the reporting rate. Demo
+Mode retains its simulated one-second focus behavior. Unique device IDs, secure
+transport, explicit command rejection feedback and physical modem verification
+remain follow-up work.

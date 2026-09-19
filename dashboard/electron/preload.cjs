@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld("roadlinkDesktop", {
   copyText: (value) => clipboard.writeText(String(value)),
   receiver: {
     getState: () => ipcRenderer.invoke("receiver:get-state"),
+    configureStreaming: (id, patch, revision) => ipcRenderer.invoke("receiver:configure-streaming", id, patch, revision),
     start: () => ipcRenderer.invoke("receiver:start"),
     stop: () => ipcRenderer.invoke("receiver:stop"),
     update: (patch) => ipcRenderer.invoke("receiver:update", patch),

@@ -6,6 +6,9 @@ Version 0.2.0 adds a real, firmware-compatible telemetry receiver and a separate
 
 ## What works now
 
+- Independent authenticated `/heartbeat` receiver and persistent device settings queue
+- Desktop Streaming panel with START/STOP, HH:MM:SS interval, GPS/OBD toggles and nine individual OBD fields
+- Pending/applied/conflict status; device-side edits update the dashboard on check-in
 - Live multi-vehicle map using open OpenStreetMap data and CARTO tiles
 - Optional MapTiler satellite imagery configured from Preferences
 - Authenticated HTTP `POST /telemetry` receiver compatible with the current firmware
@@ -31,7 +34,9 @@ Version 0.2.0 adds a real, firmware-compatible telemetry receiver and a separate
 
 ## Important current boundary
 
-The direct receiver now communicates with the existing RoadLink HTTP protocol. The new A7670SA firmware adapter is still pending the physical module and its exact firmware revision. Current RoadLink firmware does not send a unique device ID and does not accept reporting-rate commands, so those two fields must be added for a reliable multi-device, two-way fleet. The implemented contract, network behavior, and production migration path are documented in [`docs/TELEMETRY_PROTOCOL.md`](docs/TELEMETRY_PROTOCOL.md).
+The receiver communicates with the A7670SA firmware's telemetry and configuration heartbeat protocol. Open **Streaming** in the sidebar after the first heartbeat; a device can be configured even while telemetry is stopped. Settings remain pending until reported back by the device. Heartbeats do not create telemetry samples or extend GPS paths.
+
+Current physical firmware still lacks a unique device ID. Source-address fallback is suitable only for the single prototype: carrier NAT and address changes prevent reliable multi-device targeting. Stable IDs and stronger transport authentication remain required for a deployed fleet. See [`docs/TELEMETRY_PROTOCOL.md`](docs/TELEMETRY_PROTOCOL.md).
 
 ## Project structure
 
@@ -106,9 +111,9 @@ Installer output is written to `release/`.
 
 ## Suggested next milestones
 
-1. Add a stable device ID/IMEI and A7670SA transport to the physical firmware.
+1. Add a stable device ID/IMEI to the physical firmware.
 2. Add a hosted TLS ingest service for CGNAT-safe deployments and durable history.
-3. Implement device command acknowledgements and focus-mode expiry.
+3. Validate two-way settings with the physical modem; add explicit rejection reasons and focus-mode expiry.
 4. Persist trip history in a queryable local or hosted database and add playback/export.
 5. Add signed releases, automatic updates, and a RoadLink application icon.
 

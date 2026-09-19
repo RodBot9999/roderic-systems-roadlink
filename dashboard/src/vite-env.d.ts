@@ -17,6 +17,8 @@ type ReceiverState = {
     lifetimeSeconds: number;
   };
   packetCount: number;
+  heartbeatCount: number;
+  streamingDevices: StreamingDevice[];
   lastPacketAt: string | null;
   lastError: string | null;
   logPath: string;
@@ -64,6 +66,7 @@ interface Window {
     copyText: (value: string) => void;
     receiver: {
       getState: () => Promise<ReceiverState>;
+      configureStreaming: (id: string, patch: Partial<Omit<StreamingConfig, "revision">>, revision: number) => Promise<ReceiverState>;
       start: () => Promise<ReceiverState>;
       stop: () => Promise<ReceiverState>;
       update: (patch: Partial<Pick<ReceiverState, "port" | "accessKey" | "autoPortMap">> & { enabled?: boolean }) => Promise<ReceiverState>;
@@ -75,3 +78,21 @@ interface Window {
     };
   };
 }
+
+type StreamingConfig = {
+  revision: number;
+  running: boolean;
+  gps: boolean;
+  obd: boolean;
+  obd_fields: number;
+  interval_seconds: number;
+};
+type StreamingDevice = {
+  id: string;
+  stableIdentity: boolean;
+  applied: StreamingConfig;
+  desired: StreamingConfig | null;
+  status: "applied" | "pending" | "changed-on-device" | "conflict";
+  lastSeenAt: string;
+  lastHeartbeatAt: string | null;
+};

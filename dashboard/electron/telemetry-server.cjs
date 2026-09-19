@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { EventEmitter } = require("node:events");
 const { AutoPortMapper } = require("./port-mapper.cjs");
+const { StreamingConfigStore, validateStreamingConfig } = require("./streaming-config.cjs");
 
 const MAX_BODY_BYTES = 64 * 1024;
 const DEFAULT_PORT = 8080;
@@ -45,6 +46,8 @@ class TelemetryReceiver extends EventEmitter {
     this.logDirectory = path.join(dataDirectory, "telemetry");
     this.logPath = path.join(this.logDirectory, "roadlink-telemetry.jsonl");
     fs.mkdirSync(this.logDirectory, { recursive: true });
+    this.streaming = new StreamingConfigStore(dataDirectory);
+    this.heartbeatCount = 0;
     this.config = this.validateConfig(readJson(this.configPath, {
       enabled: true,
       port: DEFAULT_PORT,
@@ -104,6 +107,8 @@ class TelemetryReceiver extends EventEmitter {
       publicEndpoint: this.mapping ? `http://${this.mapping.publicIp}:${this.mapping.publicPort}/telemetry` : null,
       mapping: this.mapping,
       packetCount: this.packetCount,
+      heartbeatCount: this.heartbeatCount,
+      streamingDevices: this.streaming.list(),
       lastPacketAt: this.lastPacketAt,
       lastError: this.lastError,
       logPath: this.logPath,
@@ -112,6 +117,12 @@ class TelemetryReceiver extends EventEmitter {
 
   emitState() {
     this.emit("state", this.state());
+  }
+
+  queueStreamingConfig(id, patch, expectedRevision) {
+    this.streaming.queue(id, patch, expectedRevision);
+    this.emitState();
+    return this.state();
   }
 
   async start() {
@@ -250,7 +261,8 @@ class TelemetryReceiver extends EventEmitter {
       this.sendJson(response, 200, { ok: true, service: "roadlink-monitor" });
       return;
     }
-    if (request.method !== "POST" || requestUrl.pathname !== "/telemetry") {
+    const heartbeat = requestUrl.pathname === "/heartbeat";
+    if (request.method !== "POST" || (!heartbeat && requestUrl.pathname !== "/telemetry")) {
       this.sendJson(response, 404, { ok: false, error: "not_found" });
       return;
     }
@@ -293,11 +305,29 @@ class TelemetryReceiver extends EventEmitter {
       }
 
       const { access_key: _secret, ...safePayload } = payload;
+      try {
+        if (heartbeat || payload.config !== undefined) validateStreamingConfig(payload.config);
+      } catch {
+        this.sendJson(response, 400, { ok: false, error: "invalid_config" });
+        return;
+      }
+      let desired;
+      try { desired = this.streaming.report(safePayload, client, heartbeat); }
+      catch {
+        this.sendJson(response, 503, { ok: false, error: "configuration_unavailable" });
+        return;
+      }
       const event = {
         ...safePayload,
         _received_at: new Date().toISOString(),
         _client: client,
       };
+      if (heartbeat) {
+        this.heartbeatCount += 1;
+        this.emitState();
+        this.sendJson(response, 200, desired ? { ok: true, config: desired } : { ok: true });
+        return;
+      }
       try {
         fs.appendFileSync(this.logPath, `${JSON.stringify(event)}\n`, "utf8");
       } catch (error) {
@@ -307,7 +337,7 @@ class TelemetryReceiver extends EventEmitter {
       this.lastPacketAt = event._received_at;
       this.emit("telemetry", event);
       this.emitState();
-      this.sendJson(response, 200, { ok: true });
+      this.sendJson(response, 200, desired ? { ok: true, config: desired } : { ok: true });
     });
     request.on("error", () => {
       if (!response.headersSent) this.sendJson(response, 400, { ok: false, error: "request_error" });

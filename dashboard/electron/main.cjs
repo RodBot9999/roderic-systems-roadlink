@@ -96,6 +96,7 @@ function installFirewallRule(port) {
 
 function registerReceiverIpc() {
   ipcMain.handle("receiver:get-state", () => receiver.state());
+  ipcMain.handle("receiver:configure-streaming", (_event, id, patch, revision) => receiver.queueStreamingConfig(id, patch, revision));
   ipcMain.handle("receiver:start", () => receiver.start());
   ipcMain.handle("receiver:stop", () => receiver.stop());
   ipcMain.handle("receiver:rotate-key", () => receiver.rotateKey());
