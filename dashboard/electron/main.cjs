@@ -105,6 +105,7 @@ function registerReceiverIpc() {
     if (Object.hasOwn(patch ?? {}, "port")) safePatch.port = Number(patch.port);
     if (Object.hasOwn(patch ?? {}, "accessKey")) safePatch.accessKey = String(patch.accessKey);
     if (Object.hasOwn(patch ?? {}, "autoPortMap")) safePatch.autoPortMap = patch.autoPortMap === true;
+    if (Object.hasOwn(patch ?? {}, "freeTunnel")) safePatch.freeTunnel = patch.freeTunnel === true;
     if (Object.hasOwn(patch ?? {}, "enabled")) safePatch.enabled = patch.enabled === true;
     return receiver.updateConfig(safePatch);
   });

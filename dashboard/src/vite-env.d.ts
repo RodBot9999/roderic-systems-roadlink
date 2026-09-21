@@ -6,6 +6,7 @@ type ReceiverState = {
   port: number;
   accessKey: string;
   autoPortMap: boolean;
+  freeTunnel: boolean;
   lanAddresses: Array<{ name: string; address: string }>;
   localEndpoint: string;
   loopbackEndpoint: string;
@@ -15,6 +16,15 @@ type ReceiverState = {
     publicIp: string;
     publicPort: number;
     lifetimeSeconds: number;
+  };
+  tunnel: {
+    status: "stopped" | "starting" | "active" | "error";
+    publicHost: string | null;
+    publicIp: string | null;
+    publicPort: number | null;
+    startedAt: string | null;
+    expiresAt: string | null;
+    lastError: string | null;
   };
   packetCount: number;
   heartbeatCount: number;
@@ -69,7 +79,7 @@ interface Window {
       configureStreaming: (id: string, patch: Partial<Omit<StreamingConfig, "revision">>, revision: number) => Promise<ReceiverState>;
       start: () => Promise<ReceiverState>;
       stop: () => Promise<ReceiverState>;
-      update: (patch: Partial<Pick<ReceiverState, "port" | "accessKey" | "autoPortMap">> & { enabled?: boolean }) => Promise<ReceiverState>;
+      update: (patch: Partial<Pick<ReceiverState, "port" | "accessKey" | "autoPortMap" | "freeTunnel">> & { enabled?: boolean }) => Promise<ReceiverState>;
       rotateKey: () => Promise<ReceiverState>;
       addFirewallRule: () => Promise<{ ok: boolean; ruleName: string }>;
       openLogFolder: () => Promise<void>;

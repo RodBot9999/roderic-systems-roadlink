@@ -1,7 +1,7 @@
 {
   "name": "roadlink-fleet-desktop",
   "productName": "RoadLink Fleet",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Open-source desktop fleet telemetry dashboard for RoadLink devices",
   "author": "RoadLink",
   "license": "MIT",
@@ -14,7 +14,7 @@
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on http://127.0.0.1:5173 && cross-env ELECTRON_START_URL=http://127.0.0.1:5173 electron .\"",
     "build": "tsc -b && vite build",
-    "test": "node --test tests/telemetry-server.test.cjs tests/simulator-e2e.test.cjs",
+    "test": "node --test tests/telemetry-server.test.cjs tests/simulator-e2e.test.cjs tests/pinggy-tunnel.test.cjs",
     "preview": "vite preview",
     "dist:win": "pnpm run build && electron-builder --win nsis",
     "pack:win": "pnpm run build && electron-builder --win --dir"

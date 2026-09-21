@@ -1,6 +1,6 @@
 # RoadLink telemetry receiver and protocol
 
-RoadLink Fleet 0.3.0 implements the direct HTTP telemetry receiver plus the A7670SA firmware's bidirectional heartbeat configuration protocol. It is useful for prototypes before a hosted fleet service exists.
+RoadLink Fleet 0.3.1 implements the direct HTTP telemetry receiver plus the A7670SA firmware's bidirectional heartbeat configuration protocol and restores the independent free Pinggy test tunnel. It is useful for prototypes before a hosted fleet service exists.
 
 ## Current topology
 
@@ -97,12 +97,22 @@ The Virtual RoadLink adds `device_id`, `imei`, `firmware`, `sequence`, `captured
 - Same PC: use `127.0.0.1`, the configured port, and the displayed key.
 - Same LAN: use the dashboard's displayed LAN IPv4 address. Add the Windows Firewall private-network rule from the Receiver panel.
 - Cellular/internet: enable **Automatic public port**. The app tries NAT-PMP first, then UPnP IGD, requests a random public TCP port, renews the lease, and removes it on shutdown.
+- Cellular/CGNAT testing: enable **Free Pinggy test tunnel**. The app starts the Windows OpenSSH client with an outbound TCP reverse tunnel, resolves the allocated hostname to the IPv4 address required by the current firmware, and shows that IP and allocated port. Free endpoints normally expire after 60 minutes and change after reconnecting.
 
 Automatic mapping cannot bypass CGNAT, double NAT, router policy, or an ISP that blocks inbound connections. If the router reports a private WAN address, the app identifies likely CGNAT instead of presenting a misleading endpoint.
+
+PCP is another automatic router port-mapping standard. It can be added as a
+third direct-mapping attempt, but it still requires router/ISP support and does
+not solve CGNAT without provider cooperation. Manual router forwarding is the
+other direct alternative when the connection has a public IPv4 address.
 
 ## Security boundary
 
 Public mapping is off by default. The six-digit key exists for compatibility, is compared in constant time, and is backed by a per-client failed-authentication limit. It is still only one million possibilities and HTTP is not encrypted. Do not treat this direct receiver as production internet security.
+
+The free tunnel is also off by default and is intended only for temporary
+testing. It exposes only the configured local receiver port, and the tunnel is
+stopped with the app. See [Pinggy's official TCP tunnel documentation](https://pinggy.io/docs/tcp_tunnels/).
 
 For a deployed fleet, keep the same UI model but replace the direct path with outbound TLS:
 

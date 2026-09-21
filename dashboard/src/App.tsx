@@ -944,6 +944,17 @@ export default function App() {
   const chartLabel = chartMetric === "speed" ? "Speed" : chartMetric === "rpm" ? "Engine speed" : "Coolant";
   const focused = Boolean(selected && focusedId === selected.id);
   const receiverHealthy = receiverState?.running === true;
+  const tunnelActive = receiverState?.tunnel.status === "active";
+  const tunnelStarting = receiverState?.tunnel.status === "starting";
+  const receiverPublicIp = tunnelActive
+    ? receiverState?.tunnel.publicIp
+    : receiverState?.mapping?.publicIp;
+  const receiverPublicPort = tunnelActive
+    ? receiverState?.tunnel.publicPort
+    : receiverState?.mapping?.publicPort;
+  const tunnelMinutesLeft = receiverState?.tunnel.expiresAt
+    ? Math.max(0, Math.ceil((Date.parse(receiverState.tunnel.expiresAt) - now) / 60000))
+    : null;
   const sourceLabel = settings.demoMode ? "Demo simulator" : receiverHealthy ? "Receiver listening" : "Receiver stopped";
 
   return (
@@ -976,7 +987,7 @@ export default function App() {
         <button className="ingest-card ingest-card-button" onClick={() => setShowReceiver(true)}>
           <div className="ingest-card-head"><Server size={16} /><span>Ingest service</span></div>
           <strong>{receiverHealthy ? `TCP ${receiverState?.port}` : "Receiver stopped"}</strong>
-          <p>{receiverState?.publicEndpoint ? `${receiverState.mapping?.method} public endpoint ready.` : "Local HTTP receiver for RoadLink LTE packets."}</p>
+          <p>{receiverState?.publicEndpoint ? `${tunnelActive ? "Pinggy" : receiverState.mapping?.method ?? "Public"} endpoint ready.` : "Local HTTP receiver for RoadLink LTE packets."}</p>
           <div className={`ingest-health ${receiverHealthy ? "" : "is-offline"}`}><span /><span>{receiverHealthy ? "Listening" : "Not listening"}</span><b>{receiverState?.packetCount ?? 0} pkt</b></div>
         </button>
         <button className="nav-item settings-button" onClick={() => setShowSettings(true)}><Settings size={18} /><span>Preferences</span></button>
@@ -1160,13 +1171,14 @@ export default function App() {
               </div>
 
               <div className="receiver-section">
-                <div className="receiver-section-title"><div><span>Enter these values on your RoadLink</span><small>{receiverState.mapping ? `Public endpoint created with ${receiverState.mapping.method}` : "LAN endpoint; use public mapping for cellular access"}</small></div><ShieldCheck size={17} /></div>
+                <div className="receiver-section-title"><div><span>Enter these values on your RoadLink</span><small>{tunnelActive ? `Free Pinggy tunnel · about ${tunnelMinutesLeft} min left` : receiverState.mapping ? `Router endpoint created with ${receiverState.mapping.method}` : "LAN endpoint; choose router mapping or a free tunnel for cellular access"}</small></div><ShieldCheck size={17} /></div>
                 <div className="credential-grid">
-                  <div><span>Receiver IP</span><strong>{receiverState.mapping?.publicIp ?? receiverState.lanAddresses[0]?.address ?? "127.0.0.1"}</strong><button onClick={() => copyValue(receiverState.mapping?.publicIp ?? receiverState.lanAddresses[0]?.address ?? "127.0.0.1", "Receiver IP")}><Copy size={13} /></button></div>
-                  <div><span>TCP port</span><strong>{receiverState.mapping?.publicPort ?? receiverState.port}</strong><button onClick={() => copyValue(String(receiverState.mapping?.publicPort ?? receiverState.port), "TCP port")}><Copy size={13} /></button></div>
+                  <div><span>Receiver IP</span><strong>{receiverPublicIp ?? receiverState.lanAddresses[0]?.address ?? "127.0.0.1"}</strong><button onClick={() => copyValue(receiverPublicIp ?? receiverState.lanAddresses[0]?.address ?? "127.0.0.1", "Receiver IP")}><Copy size={13} /></button></div>
+                  <div><span>TCP port</span><strong>{receiverPublicPort ?? receiverState.port}</strong><button onClick={() => copyValue(String(receiverPublicPort ?? receiverState.port), "TCP port")}><Copy size={13} /></button></div>
                   <div className="key-credential"><span>Six-digit access key</span><strong>{receiverState.accessKey}</strong><button onClick={() => copyValue(receiverState.accessKey, "Access key")}><Copy size={13} /></button></div>
                 </div>
                 <div className="endpoint-line"><Globe2 size={14} /><span>{receiverState.publicEndpoint ?? receiverState.localEndpoint}</span><button onClick={() => copyValue(receiverState.publicEndpoint ?? receiverState.localEndpoint, "Endpoint")}><Copy size={13} /> Copy</button></div>
+                {tunnelActive && <div className="endpoint-line tunnel-line"><Radio size={14} /><span>Pinggy host: {receiverState.tunnel.publicHost}:{receiverState.tunnel.publicPort}</span></div>}
               </div>
 
               <div className="receiver-settings-grid">
@@ -1181,9 +1193,18 @@ export default function App() {
                     if (receiver) void runReceiverAction(() => receiver.update({ autoPortMap: !receiverState.autoPortMap, enabled: true }), receiverState.autoPortMap ? "Public port mapping disabled" : "Trying NAT-PMP and UPnP");
                   }} aria-label="Toggle automatic router port mapping"><span /></button>
                 </div>
+                <div className="receiver-setting-card receiver-setting-wide">
+                  <div className="receiver-setting-copy"><strong>Free Pinggy test tunnel</strong><span>{tunnelActive ? `Active · expires in about ${tunnelMinutesLeft} min; restart for a new address.` : tunnelStarting ? "Opening an outbound SSH tunnel…" : "Works behind CGNAT. Free address changes and normally expires after 60 minutes."}</span></div>
+                  <button disabled={receiverBusy || tunnelStarting} className={`toggle ${tunnelActive || tunnelStarting ? "is-on" : ""}`} onClick={() => {
+                    const receiver = window.roadlinkDesktop?.receiver;
+                    const stopTunnel = tunnelActive || tunnelStarting;
+                    if (receiver) void runReceiverAction(() => receiver.update({ freeTunnel: !stopTunnel, enabled: true }), stopTunnel ? "Free tunnel stopped" : "Starting free Pinggy tunnel");
+                  }} aria-label="Toggle free Pinggy tunnel"><span /></button>
+                </div>
               </div>
 
               {receiverState.lastError && <div className="receiver-error"><AlertTriangle size={16} /><div><strong>Receiver notice</strong><span>{receiverState.lastError}</span></div></div>}
+              {receiverState.tunnel.lastError && <div className="receiver-error"><AlertTriangle size={16} /><div><strong>Free tunnel notice</strong><span>{receiverState.tunnel.lastError}</span></div></div>}
 
               <div className="receiver-actions-row">
                 <button className="secondary-button" disabled={receiverBusy} onClick={addFirewallRule}><ShieldCheck size={15} /> Add Windows Firewall rule</button>

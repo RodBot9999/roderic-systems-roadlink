@@ -4,8 +4,34 @@ const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { EventEmitter } = require("node:events");
 const { TelemetryReceiver } = require("../electron/telemetry-server.cjs");
 const { StreamingConfigStore } = require("../electron/streaming-config.cjs");
+
+class FakeTunnel extends EventEmitter {
+  constructor() {
+    super();
+    this.starts = [];
+    this.stops = 0;
+    this.value = { status: "stopped", publicHost: null, publicIp: null,
+      publicPort: null, startedAt: null, expiresAt: null, lastError: null };
+  }
+  state() { return { ...this.value }; }
+  async start(port) {
+    this.starts.push(port);
+    this.value = { status: "active", publicHost: "test.pinggy.link", publicIp: "203.0.113.9",
+      publicPort: 23456, startedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 3600000).toISOString(), lastError: null };
+    this.emit("state", this.state());
+    return this.state();
+  }
+  async stop() {
+    this.stops += 1;
+    this.value = { ...this.value, status: "stopped", publicHost: null, publicIp: null, publicPort: null };
+    this.emit("state", this.state());
+    return this.state();
+  }
+}
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -141,4 +167,31 @@ test("configuration conflicts are visible and device queues remain isolated", (c
   store.report({ device_id: "RL-1", config: { ...baseConfig, revision: 2, obd_fields: 3 } }, "127.0.0.1", true);
   assert.equal(store.list()[0].status, "conflict");
   assert.equal(store.list()[0].desired, null);
+});
+
+test("free tunnel remains independent of router mapping and follows receiver port changes", async (context) => {
+  const dataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "roadlink-tunnel-"));
+  const tunnel = new FakeTunnel();
+  const receiver = new TelemetryReceiver({ dataDirectory, tunnel });
+  const firstPort = await freePort();
+  context.after(async () => { await receiver.stop(); fs.rmSync(dataDirectory, { recursive: true, force: true }); });
+  await receiver.updateConfig({ port: firstPort, accessKey: "123456", autoPortMap: false, freeTunnel: true, enabled: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(tunnel.starts, [firstPort]);
+  assert.equal(receiver.state().freeTunnel, true);
+  assert.equal(receiver.state().autoPortMap, false);
+  assert.equal(receiver.state().publicEndpoint, "http://203.0.113.9:23456/telemetry");
+  const secondPort = await freePort();
+  await receiver.updateConfig({ port: secondPort });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(tunnel.starts, [firstPort, secondPort]);
+  assert.ok(tunnel.stops >= 1);
+  tunnel.value = { ...tunnel.value, status: "error", lastError: "expired" };
+  tunnel.emit("state", tunnel.state());
+  await receiver.updateConfig({ freeTunnel: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(tunnel.starts, [firstPort, secondPort, secondPort]);
+  await receiver.updateConfig({ freeTunnel: false });
+  assert.equal(receiver.state().freeTunnel, false);
+  assert.equal(receiver.state().tunnel.status, "stopped");
 });

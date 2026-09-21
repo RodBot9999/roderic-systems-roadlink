@@ -2,7 +2,7 @@
 
 RoadLink Fleet is a Windows desktop dashboard for monitoring multiple RoadLink vehicle telemetry units. It is an Electron + React application so the interface stays approachable, the code remains easy to extend, and the application can be packaged as a normal Windows `.exe`.
 
-Version 0.3.0 adds the bidirectional streaming configuration panel and independent heartbeat receiver. The dashboard remains a normal Electron Windows application; networking and privileged operations run outside the renderer.
+Version 0.3.1 restores the free Pinggy test tunnel as an independent option alongside NAT-PMP/UPnP router mapping. Version 0.3.0 added the bidirectional streaming configuration panel and independent heartbeat receiver. The dashboard remains a normal Electron Windows application; networking and privileged operations run outside the renderer.
 
 ## What works now
 
@@ -14,6 +14,7 @@ Version 0.3.0 adds the bidirectional streaming configuration panel and independe
 - Authenticated HTTP `POST /telemetry` receiver compatible with the current firmware
 - Exact receiver IP, TCP port, and six-digit access key shown inside the app
 - Optional NAT-PMP then UPnP public-port mapping with lease renewal and cleanup
+- Optional free Pinggy TCP tunnel for CGNAT testing, using Windows OpenSSH with no extra account or bundled executable
 - Explicit Windows Firewall private-network rule action with UAC
 - Append-only JSONL telemetry logging with the access key removed
 - Real live-device discovery, GPS paths, maps, metrics, and charts
@@ -46,6 +47,7 @@ electron/
   preload.cjs             Isolated typed desktop bridge
   telemetry-server.cjs    HTTP authentication, logging, and receiver state
   port-mapper.cjs         NAT-PMP and UPnP mapping lifecycle
+  pinggy-tunnel.cjs       Temporary outbound SSH tunnel lifecycle and address parsing
 src/
   App.tsx                 Fleet state, receiver controls, map, and charts
   main.tsx                React entry point
@@ -74,6 +76,12 @@ pnpm dev
 ```
 
 Satellite view can be configured inside the app, or a development default can be supplied through `VITE_MAPTILER_KEY` in a local `.env` file. Never commit a production key to the repository.
+
+For cellular testing when router mapping fails, open **Receiver** and enable
+**Free Pinggy test tunnel**. Copy the resolved IPv4 address and TCP port into
+RoadLink. The free address normally expires after 60 minutes and changes when
+restarted. Router mapping and the tunnel are separate features and can be
+enabled or disabled independently.
 
 Production UI build:
 

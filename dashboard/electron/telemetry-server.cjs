@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { EventEmitter } = require("node:events");
 const { AutoPortMapper } = require("./port-mapper.cjs");
+const { PinggyTunnel } = require("./pinggy-tunnel.cjs");
 const { StreamingConfigStore, validateStreamingConfig } = require("./streaming-config.cjs");
 
 const MAX_BODY_BYTES = 64 * 1024;
@@ -39,7 +40,7 @@ function readJson(filePath, fallback) {
 }
 
 class TelemetryReceiver extends EventEmitter {
-  constructor({ dataDirectory }) {
+  constructor({ dataDirectory, tunnel = new PinggyTunnel() }) {
     super();
     this.dataDirectory = dataDirectory;
     this.configPath = path.join(dataDirectory, "receiver-config.json");
@@ -53,10 +54,12 @@ class TelemetryReceiver extends EventEmitter {
       port: DEFAULT_PORT,
       accessKey: generateKey(),
       autoPortMap: false,
+      freeTunnel: false,
     }));
     this.server = null;
     this.mapper = new AutoPortMapper();
     this.mapping = null;
+    this.tunnel = tunnel;
     this.lastError = null;
     this.packetCount = 0;
     this.lastPacketAt = null;
@@ -71,6 +74,7 @@ class TelemetryReceiver extends EventEmitter {
       this.lastError = error.message;
       this.emitState();
     });
+    this.tunnel.on("state", () => this.emitState());
     this.saveConfig();
   }
 
@@ -82,6 +86,7 @@ class TelemetryReceiver extends EventEmitter {
       port: Number.isInteger(port) && port >= 1 && port <= 65535 ? port : DEFAULT_PORT,
       accessKey: /^\d{6}$/.test(accessKey) ? accessKey : generateKey(),
       autoPortMap: candidate.autoPortMap === true,
+      freeTunnel: candidate.freeTunnel === true,
     };
   }
 
@@ -101,11 +106,15 @@ class TelemetryReceiver extends EventEmitter {
       port: this.config.port,
       accessKey: this.config.accessKey,
       autoPortMap: this.config.autoPortMap,
+      freeTunnel: this.config.freeTunnel,
       lanAddresses: addresses,
       localEndpoint: `http://${primaryAddress}:${this.config.port}/telemetry`,
       loopbackEndpoint: `http://127.0.0.1:${this.config.port}/telemetry`,
-      publicEndpoint: this.mapping ? `http://${this.mapping.publicIp}:${this.mapping.publicPort}/telemetry` : null,
+      publicEndpoint: this.tunnel.state().status === "active"
+        ? `http://${this.tunnel.state().publicIp}:${this.tunnel.state().publicPort}/telemetry`
+        : (this.mapping ? `http://${this.mapping.publicIp}:${this.mapping.publicPort}/telemetry` : null),
       mapping: this.mapping,
+      tunnel: this.tunnel.state(),
       packetCount: this.packetCount,
       heartbeatCount: this.heartbeatCount,
       streamingDevices: this.streaming.list(),
@@ -156,11 +165,13 @@ class TelemetryReceiver extends EventEmitter {
 
     this.emitState();
     if (this.config.autoPortMap) this.startMapping();
+    if (this.config.freeTunnel) this.startTunnel();
     return this.state();
   }
 
   async stop({ disable = true } = {}) {
     await this.mapper.stop();
+    await this.tunnel.stop();
     this.mapping = null;
     const server = this.server;
     this.server = null;
@@ -192,9 +203,14 @@ class TelemetryReceiver extends EventEmitter {
         this.mapping = null;
         this.emitState();
       }
-    } else {
-      this.emitState();
     }
+    if (previous.freeTunnel !== this.config.freeTunnel) {
+      if (this.config.freeTunnel) this.startTunnel();
+      else await this.tunnel.stop();
+    } else if (this.config.freeTunnel && ["stopped", "error"].includes(this.tunnel.state().status)) {
+      this.startTunnel();
+    }
+    this.emitState();
     return this.state();
   }
 
@@ -224,6 +240,15 @@ class TelemetryReceiver extends EventEmitter {
       this.lastError = error.message;
     }
     this.emitState();
+  }
+
+  async startTunnel() {
+    if (!this.server?.listening) return;
+    try {
+      await this.tunnel.start(this.config.port);
+    } catch {
+      // Tunnel state carries the actionable error and emits it to the renderer.
+    }
   }
 
   isBlocked(address) {
