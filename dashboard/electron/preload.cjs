@@ -2,7 +2,7 @@ const { clipboard, contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("roadlinkDesktop", {
   platform: process.platform,
-  version: "0.3.1",
+  version: "0.3.2",
   copyText: (value) => clipboard.writeText(String(value)),
   receiver: {
     getState: () => ipcRenderer.invoke("receiver:get-state"),

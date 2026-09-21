@@ -40,7 +40,7 @@ function readJson(filePath, fallback) {
 }
 
 class TelemetryReceiver extends EventEmitter {
-  constructor({ dataDirectory, tunnel = new PinggyTunnel() }) {
+  constructor({ dataDirectory, tunnel = null }) {
     super();
     this.dataDirectory = dataDirectory;
     this.configPath = path.join(dataDirectory, "receiver-config.json");
@@ -59,7 +59,9 @@ class TelemetryReceiver extends EventEmitter {
     this.server = null;
     this.mapper = new AutoPortMapper();
     this.mapping = null;
-    this.tunnel = tunnel;
+    this.tunnel = tunnel ?? new PinggyTunnel({
+      identityFile: path.join(dataDirectory, "pinggy-tunnel-ed25519"),
+    });
     this.lastError = null;
     this.packetCount = 0;
     this.lastPacketAt = null;

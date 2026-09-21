@@ -2,7 +2,7 @@
 
 RoadLink Fleet is a Windows desktop dashboard for monitoring multiple RoadLink vehicle telemetry units. It is an Electron + React application so the interface stays approachable, the code remains easy to extend, and the application can be packaged as a normal Windows `.exe`.
 
-Version 0.3.1 restores the free Pinggy test tunnel as an independent option alongside NAT-PMP/UPnP router mapping. Version 0.3.0 added the bidirectional streaming configuration panel and independent heartbeat receiver. The dashboard remains a normal Electron Windows application; networking and privileged operations run outside the renderer.
+Version 0.3.2 makes the restored free Pinggy test tunnel fully unattended by generating an app-specific SSH identity on first use and displaying useful SSH failures in the Receiver panel. Version 0.3.1 restored the tunnel as an independent option alongside NAT-PMP/UPnP router mapping. Version 0.3.0 added the bidirectional streaming configuration panel and independent heartbeat receiver. The dashboard remains a normal Electron Windows application; networking and privileged operations run outside the renderer.
 
 ## What works now
 
@@ -14,7 +14,7 @@ Version 0.3.1 restores the free Pinggy test tunnel as an independent option alon
 - Authenticated HTTP `POST /telemetry` receiver compatible with the current firmware
 - Exact receiver IP, TCP port, and six-digit access key shown inside the app
 - Optional NAT-PMP then UPnP public-port mapping with lease renewal and cleanup
-- Optional free Pinggy TCP tunnel for CGNAT testing, using Windows OpenSSH with no extra account or bundled executable
+- Optional free Pinggy TCP tunnel for CGNAT testing, using Windows OpenSSH and an app-specific generated identity with no extra account or bundled executable
 - Explicit Windows Firewall private-network rule action with UAC
 - Append-only JSONL telemetry logging with the access key removed
 - Real live-device discovery, GPS paths, maps, metrics, and charts

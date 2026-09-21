@@ -1,7 +1,7 @@
 {
   "name": "roadlink-fleet-desktop",
   "productName": "RoadLink Fleet",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Open-source desktop fleet telemetry dashboard for RoadLink devices",
   "author": "RoadLink",
   "license": "MIT",

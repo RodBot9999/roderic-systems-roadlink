@@ -1,6 +1,6 @@
 # RoadLink telemetry receiver and protocol
 
-RoadLink Fleet 0.3.1 implements the direct HTTP telemetry receiver plus the A7670SA firmware's bidirectional heartbeat configuration protocol and restores the independent free Pinggy test tunnel. It is useful for prototypes before a hosted fleet service exists.
+RoadLink Fleet 0.3.2 implements the direct HTTP telemetry receiver plus the A7670SA firmware's bidirectional heartbeat configuration protocol and an unattended independent free Pinggy test tunnel. It is useful for prototypes before a hosted fleet service exists.
 
 ## Current topology
 
@@ -97,7 +97,7 @@ The Virtual RoadLink adds `device_id`, `imei`, `firmware`, `sequence`, `captured
 - Same PC: use `127.0.0.1`, the configured port, and the displayed key.
 - Same LAN: use the dashboard's displayed LAN IPv4 address. Add the Windows Firewall private-network rule from the Receiver panel.
 - Cellular/internet: enable **Automatic public port**. The app tries NAT-PMP first, then UPnP IGD, requests a random public TCP port, renews the lease, and removes it on shutdown.
-- Cellular/CGNAT testing: enable **Free Pinggy test tunnel**. The app starts the Windows OpenSSH client with an outbound TCP reverse tunnel, resolves the allocated hostname to the IPv4 address required by the current firmware, and shows that IP and allocated port. Free endpoints normally expire after 60 minutes and change after reconnecting.
+- Cellular/CGNAT testing: enable **Free Pinggy test tunnel**. On first use the app creates its own passwordless SSH identity inside the RoadLink application-data directory, then starts the Windows OpenSSH client with an outbound TCP reverse tunnel. It resolves the allocated hostname to the IPv4 address required by the current firmware and shows that IP and allocated port. Free endpoints normally expire after 60 minutes and change after reconnecting.
 
 Automatic mapping cannot bypass CGNAT, double NAT, router policy, or an ISP that blocks inbound connections. If the router reports a private WAN address, the app identifies likely CGNAT instead of presenting a misleading endpoint.
 
