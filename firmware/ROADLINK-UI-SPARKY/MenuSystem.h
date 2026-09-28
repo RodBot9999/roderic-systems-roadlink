@@ -1,0 +1,208 @@
+#pragma once
+
+#include <Arduino.h>
+#include "AppState.h"
+#include "EncoderInput.h"
+#include "UiModel.h"
+#include "GpsService.h"
+#include "CanService.h"
+#include "ObdService.h"
+#include "A7670Service.h"
+#include "SettingsStore.h"
+#include "StartupDiagnostics.h"
+#include "StreamingController.h"
+
+enum class ScreenId : uint8_t {
+  StartupErrors,
+  StartupErrorDetail,
+  MainMenu,
+  RebootConfirm,
+  RebootProgress,
+
+  StreamingMenu,
+  StreamingSources,
+  StreamingObdCategories,
+  StreamingEngine,
+  StreamingAir,
+  StreamingVehicle,
+  StreamingPower,
+  StreamingInterval,
+  StreamingStatus,
+
+  CanMenu,
+  CanMonitorMenu,
+  CanStatus,
+  CanLiveFrame,
+  CanIdBrowser,
+  CanIdDetail,
+  CanStatistics,
+
+  ObdMenu,
+  ObdStatus,
+  ObdDiscovery,
+  ObdLiveData,
+  ObdSupportedPids,
+  ObdDtcs,
+  ObdClearConfirm,
+  ObdVin,
+
+  GpsMenu,
+  GpsOverview,
+  GpsPosition,
+  GpsSignal,
+  GpsMotion,
+  GpsTime,
+  GpsNmeaStatistics,
+  GpsRawNmea,
+
+  SettingsMenu,
+  ThemeMenu,
+  SimConfiguration,
+  SimStatus,
+  SimErrors,
+  SimIpEditor,
+  SimPortEditor,
+  SimKeyEditor,
+  About
+};
+
+class MenuSystem {
+public:
+  MenuSystem(
+      UiModel& ui,
+      CanService& can,
+      ObdService& obd,
+      GpsService& gps,
+      A7670Service& sim,
+      AppSettings& settings,
+      SettingsStore& settingsStore,
+      StartupDiagnostics& diagnostics,
+      StreamingController& streaming);
+
+  void begin();
+  void handleInput(InputEvent event);
+  void update();
+  bool takeRebootRequest();
+
+private:
+  static constexpr uint8_t NAVIGATION_DEPTH = 10;
+
+  struct NavEntry {
+    ScreenId screen = ScreenId::MainMenu;
+    uint8_t selection = 0;
+    uint8_t detailPage = 0;
+  };
+
+  ScreenId currentScreen() const;
+  uint8_t& currentSelection();
+  const uint8_t& currentSelection() const;
+
+  void pushScreen(ScreenId screen);
+  void goBack();
+  void onScreenChanged(ScreenId previous, ScreenId current);
+  void rotate(int8_t direction);
+  void press();
+  bool changeDetailPage(int8_t direction);
+
+  uint8_t itemCount(ScreenId screen) const;
+  String itemLabel(ScreenId screen, uint8_t index) const;
+  String itemValue(ScreenId screen, uint8_t index) const;
+  bool itemEnabled(ScreenId screen, uint8_t index) const;
+  bool itemDestructive(ScreenId screen, uint8_t index) const;
+  UiIcon itemIcon(ScreenId screen, uint8_t index) const;
+  UiTone itemTone(ScreenId screen, uint8_t index) const;
+  void activateItem(ScreenId screen, uint8_t index);
+
+  void render(bool force = false);
+  UiFrame buildFrame(ScreenId screen) const;
+  String titleFor(ScreenId screen) const;
+  String breadcrumbFor(ScreenId screen) const;
+  UiLayout layoutFor(ScreenId screen) const;
+
+  void addItem(
+      UiFrame& frame,
+      const String& label,
+      const String& value = "",
+      bool enabled = true,
+      bool destructive = false,
+      UiIcon icon = UiIcon::None,
+      UiTone tone = UiTone::Neutral) const;
+  void addField(UiFrame& frame, const String& label, const String& value) const;
+
+  void fillStartupErrorDetail(UiFrame& frame) const;
+  void fillCanStatus(UiFrame& frame) const;
+  void fillCanLiveFrame(UiFrame& frame) const;
+  void fillCanIdDetail(UiFrame& frame) const;
+  void fillCanStatistics(UiFrame& frame) const;
+  void fillObdStatus(UiFrame& frame) const;
+  void fillObdDiscovery(UiFrame& frame) const;
+  void fillObdLiveData(UiFrame& frame) const;
+  void fillObdSupportedPids(UiFrame& frame) const;
+  void fillObdDtcs(UiFrame& frame) const;
+  void fillObdVin(UiFrame& frame) const;
+  void fillGpsOverview(UiFrame& frame) const;
+  void fillGpsPosition(UiFrame& frame) const;
+  void fillGpsSignal(UiFrame& frame) const;
+  void fillGpsMotion(UiFrame& frame) const;
+  void fillGpsTime(UiFrame& frame) const;
+  void fillGpsNmeaStatistics(UiFrame& frame) const;
+  void fillGpsRawNmea(UiFrame& frame) const;
+  void fillSimConfiguration(UiFrame& frame) const;
+  void fillSimErrors(UiFrame& frame) const;
+  void fillSimEditor(UiFrame& frame, ScreenId screen) const;
+  void fillStreamingInterval(UiFrame& frame) const;
+  void fillStreamingStatus(UiFrame& frame) const;
+  void fillAbout(UiFrame& frame) const;
+
+  bool ensureObdTransmitMode();
+  void retryCan();
+  void cycleCanBitrate();
+  void toggleCanMode();
+  void cycleUiRefresh();
+  void cycleObdPoll();
+  bool handleSimEditorInput(InputEvent event);
+  bool handleStreamingIntervalInput(InputEvent event);
+  void beginStreamingIntervalEditor();
+  void beginSimEditor(ScreenId screen);
+  bool commitSimEditor(ScreenId screen);
+  uint8_t simEditorDigitCount(ScreenId screen) const;
+  String simEditorValue(ScreenId screen) const;
+  String compactModemText(const String& value) const;
+  String simFailureHint(const A7670Snapshot& snapshot) const;
+  void addTextChunks(
+      UiFrame& frame,
+      const String& label,
+      const String& value,
+      uint8_t maxChunks) const;
+  String ipLabel(const uint8_t ip[4]) const;
+  String streamIntervalLabel() const;
+  uint8_t selectedFieldCount(uint16_t mask) const;
+
+  String formatHexId(uint32_t id, bool extended = false) const;
+  String formatData(const uint8_t* data, uint8_t dlc) const;
+  String ageLabel(uint32_t ageMs) const;
+  String floatValue(bool valid, float value, uint8_t decimals, const char* unit) const;
+  String supportedMaskLabel(const ObdEcuInfo* ecu, uint8_t index) const;
+
+  UiModel& ui_;
+  CanService& can_;
+  ObdService& obd_;
+  GpsService& gps_;
+  A7670Service& sim_;
+  AppSettings& settings_;
+  SettingsStore& settingsStore_;
+  StartupDiagnostics& diagnostics_;
+  StreamingController& streaming_;
+
+  NavEntry navigation_[NAVIGATION_DEPTH] = {};
+  uint8_t navigationDepth_ = 1;
+  uint8_t selectedErrorIndex_ = 0;
+  uint8_t selectedCanIdIndex_ = 0;
+  uint32_t lastRenderMs_ = 0;
+  uint8_t editDigits_[12] = {};
+  uint8_t editPosition_ = 0;
+  bool editChanging_ = false;
+  String editorMessage_;
+  String settingsMessage_;
+  bool rebootRequested_ = false;
+};
