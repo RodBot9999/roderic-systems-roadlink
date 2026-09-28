@@ -206,7 +206,8 @@ uint8_t MenuSystem::itemCount(ScreenId screen) const {
     case ScreenId::GpsNmeaStatistics:  return 1;
     case ScreenId::GpsRawNmea:         return 1;
     case ScreenId::SettingsMenu:       return 9;
-    case ScreenId::ThemeMenu:          return 6;
+    case ScreenId::ThemeMenu:          return 7;
+    case ScreenId::ThemeStudio:        return 5;
     case ScreenId::SimConfiguration:   return 8;
     case ScreenId::SimStatus:          return 1;
     case ScreenId::SimErrors:          return 1;
@@ -304,7 +305,13 @@ String MenuSystem::itemLabel(ScreenId screen, uint8_t index) const {
   }
 
   if (screen == ScreenId::ThemeMenu) {
-    return index < 5 ? uiThemeLabel(index) : "< Back";
+    return index < 6 ? uiThemeLabel(index) : "< Back";
+  }
+
+  if (screen == ScreenId::ThemeStudio) {
+    static const char* ITEMS[] = {
+      "Canvas", "Accent", "Focus Ring", "Surprise Me", "< Back"};
+    return ITEMS[index];
   }
 
   if (screen == ScreenId::CanIdBrowser) {
@@ -423,7 +430,17 @@ String MenuSystem::itemValue(ScreenId screen, uint8_t index) const {
   }
 
   if (screen == ScreenId::ThemeMenu) {
-    return index < 5 && index == settings_.uiTheme ? "ACTIVE" : "";
+    return index < 6 && index == settings_.uiTheme ? "ACTIVE" : "";
+  }
+
+  if (screen == ScreenId::ThemeStudio) {
+    switch (index) {
+      case 0: return ThemeStudio::canvasLabel(settings_.customCanvas);
+      case 1: return ThemeStudio::colorLabel(settings_.customAccent);
+      case 2: return ThemeStudio::colorLabel(settings_.customFocus);
+      case 3: return "ONE-CLICK MIX";
+      default: return "";
+    }
   }
 
   if (screen == ScreenId::SimConfiguration) {
@@ -697,6 +714,7 @@ void MenuSystem::activateItem(ScreenId screen, uint8_t index) {
         break;
       }
       case 6:
+        settingsMessage_ = "";
         pushScreen(ScreenId::ThemeMenu);
         currentSelection() = settings_.uiTheme;
         break;
@@ -707,11 +725,45 @@ void MenuSystem::activateItem(ScreenId screen, uint8_t index) {
   }
 
   if (screen == ScreenId::ThemeMenu) {
-    if (index == 5) goBack();
+    if (index == 6) goBack();
     else if (settingsStore_.saveUiTheme(index)) {
       settings_.uiTheme = index;
-      settingsMessage_ = String(uiThemeLabel(index)) + " saved";
+      if (index == 5) {
+        settingsMessage_ = "";
+        pushScreen(ScreenId::ThemeStudio);
+      } else settingsMessage_ = String(uiThemeLabel(index)) + " saved";
     } else settingsMessage_ = "Could not save color theme";
+    return;
+  }
+
+  if (screen == ScreenId::ThemeStudio) {
+    if (index == 4) {
+      goBack();
+      return;
+    }
+    AppSettings next = settings_;
+    if (index == 0) {
+      next.customCanvas = (next.customCanvas + 1) % ThemeStudio::CANVAS_COUNT;
+    } else if (index == 1) {
+      next.customAccent = (next.customAccent + 1) % ThemeStudio::COLOR_COUNT;
+    } else if (index == 2) {
+      next.customFocus = (next.customFocus + 1) % ThemeStudio::COLOR_COUNT;
+    } else {
+      // The click timing makes each mix different without storing a random seed.
+      const uint32_t tick = millis();
+      next.customCanvas = (next.customCanvas + 1 + (tick %
+          (ThemeStudio::CANVAS_COUNT - 1))) % ThemeStudio::CANVAS_COUNT;
+      next.customAccent = (next.customAccent + 1 + ((tick >> 4) %
+          (ThemeStudio::COLOR_COUNT - 1))) % ThemeStudio::COLOR_COUNT;
+      next.customFocus = (next.customFocus + 1 + ((tick >> 9) %
+          (ThemeStudio::COLOR_COUNT - 1))) % ThemeStudio::COLOR_COUNT;
+    }
+    if (settingsStore_.saveCustomTheme(next)) {
+      settings_.customCanvas = next.customCanvas;
+      settings_.customAccent = next.customAccent;
+      settings_.customFocus = next.customFocus;
+      settingsMessage_ = index == 3 ? "Fresh mix saved" : "Color saved";
+    } else settingsMessage_ = "Could not save custom colors";
     return;
   }
 
@@ -836,6 +888,9 @@ UiFrame MenuSystem::buildFrame(ScreenId screen) const {
   UiFrame frame;
   frame.layout = layoutFor(screen);
   frame.themeId = settings_.uiTheme;
+  frame.customCanvas = settings_.customCanvas;
+  frame.customAccent = settings_.customAccent;
+  frame.customFocus = settings_.customFocus;
   frame.title = titleFor(screen);
   frame.breadcrumb = breadcrumbFor(screen);
   frame.canGoBack = navigationDepth_ > 1;
@@ -941,6 +996,9 @@ UiFrame MenuSystem::buildFrame(ScreenId screen) const {
     frame.subtitle = settingsMessage_.length() ? settingsMessage_
         : "Press a palette to preview and save";
     frame.status = settingsMessage_;
+  } else if (screen == ScreenId::ThemeStudio) {
+    frame.subtitle = settingsMessage_.length() ? settingsMessage_
+        : "Rotate to choose / press to change";
   }
 
   return frame;
@@ -987,6 +1045,7 @@ String MenuSystem::titleFor(ScreenId screen) const {
     case ScreenId::GpsRawNmea:         return "Raw NMEA";
     case ScreenId::SettingsMenu:       return "Settings";
     case ScreenId::ThemeMenu:          return "Color Theme";
+    case ScreenId::ThemeStudio:        return "Theme Studio";
     case ScreenId::SimConfiguration:   return "A7670SA Configuration";
     case ScreenId::SimStatus:          return "A7670SA Status";
     case ScreenId::SimErrors:          return "A7670SA Errors";
@@ -1030,6 +1089,7 @@ UiLayout MenuSystem::layoutFor(ScreenId screen) const {
     case ScreenId::GpsMenu:
     case ScreenId::SettingsMenu:
     case ScreenId::ThemeMenu:
+    case ScreenId::ThemeStudio:
     case ScreenId::SimConfiguration:
       return UiLayout::Menu;
     default:

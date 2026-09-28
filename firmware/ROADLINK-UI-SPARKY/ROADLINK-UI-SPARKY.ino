@@ -131,7 +131,8 @@ void setup() {
       Pins::CAN_MOSI,
       AppConfig::TFT_ROTATION,
       AppConfig::TFT_SPI_HZ);
-  tft.setTheme(settings.uiTheme);
+  tft.setTheme(settings.uiTheme, settings.customCanvas,
+      settings.customAccent, settings.customFocus);
 
   encoder.begin();
   tft.showSplash();

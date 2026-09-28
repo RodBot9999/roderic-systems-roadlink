@@ -11,6 +11,7 @@ public:
   bool saveHeartbeatEnabled(bool enabled);
   bool saveOtaEnabled(bool enabled);
   bool saveUiTheme(uint8_t theme);
+  bool saveCustomTheme(const AppSettings& settings);
 
 private:
   Preferences preferences_;

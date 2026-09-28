@@ -25,8 +25,17 @@ Settings also has three SPARKY-only persistent controls:
 - **OTA Wi-Fi:** ON by default. OFF closes the update web server and turns off
   the ESP32 access point; turn it back ON with the rotary knob whenever needed.
   It does not erase the saved Wi-Fi password or affect the A7670SA.
-- **Color Theme:** five small code-drawn palettes. The selection is saved to
-  NVS and applied immediately, without changing the original splash image.
+- **Color Theme:** the original five code-drawn palettes remain. A sixth,
+  **Theme Studio**, lets the knob cycle five dark canvas styles, nine accent
+  colors, and nine focus-ring colors. Its compact live preview and one-click
+  Surprise Me mix use no image assets. Each change is applied immediately and
+  saved as one four-byte NVS recipe; the original splash image is unchanged.
+
+To try it: **Settings > Color Theme > Theme Studio**. Rotate to Canvas,
+Accent, Focus Ring, or Surprise Me; press to change the selected color or mix.
+Hold the knob to go back as usual. The five preset palettes remain available
+from the same Color Theme menu. Disabling OTA Wi-Fi also remains independent
+of the theme choice.
 
 Long detail values appear on full-width, stationary cards. Rotate the knob to
 move between pages when needed; pages never advance automatically or scroll.

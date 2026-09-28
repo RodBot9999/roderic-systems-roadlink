@@ -14,7 +14,20 @@ void SettingsStore::load(AppSettings& settings) {
   settings.heartbeatEnabled = preferences_.getBool("heartbeat", true);
   settings.otaEnabled = preferences_.getBool("otaWiFi", true);
   settings.uiTheme = preferences_.getUChar("uiTheme", 0);
-  if (settings.uiTheme > 4) settings.uiTheme = 0;
+  if (settings.uiTheme > 5) settings.uiTheme = 0;
+  const uint32_t themeMix = preferences_.getUInt("themeMix", 0);
+  if ((themeMix >> 24) == 0xA5) {
+    const uint8_t canvas = (themeMix >> 16) & 0xFF;
+    const uint8_t accent = (themeMix >> 8) & 0xFF;
+    const uint8_t focus = themeMix & 0xFF;
+    if (canvas < ThemeStudio::CANVAS_COUNT &&
+        accent < ThemeStudio::COLOR_COUNT &&
+        focus < ThemeStudio::COLOR_COUNT) {
+      settings.customCanvas = canvas;
+      settings.customAccent = accent;
+      settings.customFocus = focus;
+    }
+  }
   settings.simSendIntervalMs =
       preferences_.getULong("simInterval", settings.simSendIntervalMs);
   settings.simSendIntervalMs = constrain(
@@ -63,5 +76,16 @@ bool SettingsStore::saveOtaEnabled(bool enabled) {
 }
 
 bool SettingsStore::saveUiTheme(uint8_t theme) {
-  return ready_ && theme <= 4 && preferences_.putUChar("uiTheme", theme) == 1;
+  return ready_ && theme <= 5 && preferences_.putUChar("uiTheme", theme) == 1;
+}
+
+bool SettingsStore::saveCustomTheme(const AppSettings& settings) {
+  if (!ready_ || settings.customCanvas >= ThemeStudio::CANVAS_COUNT ||
+      settings.customAccent >= ThemeStudio::COLOR_COUNT ||
+      settings.customFocus >= ThemeStudio::COLOR_COUNT) return false;
+  const uint32_t themeMix = 0xA5000000UL |
+      (static_cast<uint32_t>(settings.customCanvas) << 16) |
+      (static_cast<uint32_t>(settings.customAccent) << 8) |
+      settings.customFocus;
+  return preferences_.putUInt("themeMix", themeMix) == sizeof(themeMix);
 }

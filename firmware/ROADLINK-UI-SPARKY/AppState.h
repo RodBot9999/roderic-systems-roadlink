@@ -40,6 +40,9 @@ struct AppSettings {
   bool heartbeatEnabled = true;
   bool otaEnabled = true;
   uint8_t uiTheme = 0;
+  uint8_t customCanvas = 0;
+  uint8_t customAccent = 3;
+  uint8_t customFocus = 5;
 
   uint16_t uiRefreshMs = AppConfig::UI_REFRESH_DEFAULT_MS;
   uint16_t obdPollMs = AppConfig::OBD_POLL_DEFAULT_MS;
@@ -72,6 +75,25 @@ inline const char* uiThemeLabel(uint8_t theme) {
     case 2: return "Ember Orange";
     case 3: return "Neon Violet";
     case 4: return "Graphite";
+    case 5: return "Theme Studio";
   }
   return "Sparky Mint";
+}
+
+namespace ThemeStudio {
+constexpr uint8_t CANVAS_COUNT = 5;
+constexpr uint8_t COLOR_COUNT = 9;
+
+inline const char* canvasLabel(uint8_t index) {
+  static const char* const NAMES[] = {
+      "Midnight", "Ocean", "Graphite", "Forest", "Plum"};
+  return index < CANVAS_COUNT ? NAMES[index] : NAMES[0];
+}
+
+inline const char* colorLabel(uint8_t index) {
+  static const char* const NAMES[] = {
+      "Mint", "Ice", "Electric Blue", "Violet", "Pink",
+      "Solar Amber", "Coral", "Lime", "Frost White"};
+  return index < COLOR_COUNT ? NAMES[index] : NAMES[0];
+}
 }

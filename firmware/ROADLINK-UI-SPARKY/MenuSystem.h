@@ -57,6 +57,7 @@ enum class ScreenId : uint8_t {
 
   SettingsMenu,
   ThemeMenu,
+  ThemeStudio,
   SimConfiguration,
   SimStatus,
   SimErrors,

@@ -30,6 +30,9 @@ bool UiModel::sameContent(const UiFrame& left, const UiFrame& right) const {
       left.fieldCount != right.fieldCount ||
       left.detailPage != right.detailPage ||
       left.themeId != right.themeId ||
+      left.customCanvas != right.customCanvas ||
+      left.customAccent != right.customAccent ||
+      left.customFocus != right.customFocus ||
       left.canGoBack != right.canGoBack) {
     return false;
   }

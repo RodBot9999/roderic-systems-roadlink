@@ -50,6 +50,9 @@ struct UiFrame {
   uint8_t fieldCount = 0;
   uint8_t detailPage = 0;
   uint8_t themeId = 0;
+  uint8_t customCanvas = 0;
+  uint8_t customAccent = 3;
+  uint8_t customFocus = 5;
 
   bool canGoBack = false;
   uint32_t generatedMs = 0;

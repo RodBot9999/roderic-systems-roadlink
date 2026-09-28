@@ -45,6 +45,17 @@ constexpr ThemeColors THEMES[] = {
     {0x1061, 0x30C2, 0x4103, 0x69E4, 0xFC89, 0x6983, 0x5F39},
     {0x0843, 0x20A6, 0x3109, 0x51CD, 0xD47F, 0x516D, 0xFE2C},
     {0x0862, 0x18E4, 0x2986, 0x4ACB, 0xDF7D, 0x3A89, 0xFE2C}};
+constexpr ThemeColors STUDIO_CANVASES[] = {
+    THEMES[0], THEMES[1], THEMES[4],
+    {0x0143, 0x0A05, 0x12A7, 0x2B6A, 0, 0, 0},
+    THEMES[3]};
+constexpr uint16_t STUDIO_COLORS[] = {
+    0x5F39, 0x5E3F, 0x3DFF, 0xD47F, 0xF3B8,
+    0xFC89, 0xFB4E, 0xA70C, 0xEFBE};
+
+uint16_t blend565(uint16_t a, uint16_t b) {
+  return ((a & 0xF7DE) >> 1) + ((b & 0xF7DE) >> 1);
+}
 }
 
 TftRenderer::TftRenderer(
@@ -157,7 +168,11 @@ void TftRenderer::update(bool force) {
   if (!initialized_) return;
 
   const UiFrame& frame = uiModel_.frame();
-  if (frame.themeId != themeId_) setTheme(frame.themeId);
+  if (frame.themeId != themeId_ || frame.customCanvas != customCanvas_ ||
+      frame.customAccent != customAccent_ || frame.customFocus != customFocus_) {
+    setTheme(frame.themeId, frame.customCanvas,
+        frame.customAccent, frame.customFocus);
+  }
   const uint32_t revision = uiModel_.revision();
   const uint8_t page = detailPage(frame);
   const bool pageChanged = page != renderedDetailPage_;
@@ -243,18 +258,28 @@ void TftRenderer::setOtaAvailable(bool available) {
   renderedRevision_ = UINT32_MAX;
 }
 
-void TftRenderer::setTheme(uint8_t theme) {
-  if (theme > 4) theme = 0;
-  if (themeId_ == theme) return;
+void TftRenderer::setTheme(uint8_t theme, uint8_t canvas,
+    uint8_t accent, uint8_t focus) {
+  if (theme > 5) theme = 0;
+  if (canvas >= 5) canvas = 0;
+  if (accent >= 9) accent = 3;
+  if (focus >= 9) focus = 5;
+  if (themeId_ == theme && customCanvas_ == canvas &&
+      customAccent_ == accent && customFocus_ == focus) return;
   themeId_ = theme;
-  const ThemeColors& palette = THEMES[theme];
+  customCanvas_ = canvas;
+  customAccent_ = accent;
+  customFocus_ = focus;
+  const ThemeColors& palette = theme == 5
+      ? STUDIO_CANVASES[canvas] : THEMES[theme];
   COLOR_BG = palette.bg;
   COLOR_PANEL = palette.panel;
   COLOR_PANEL_ALT = palette.raised;
   COLOR_LINE = palette.line;
-  COLOR_CYAN = palette.accent;
-  COLOR_CYAN_DARK = palette.dim;
-  COLOR_SELECT = palette.selection;
+  COLOR_CYAN = theme == 5 ? STUDIO_COLORS[accent] : palette.accent;
+  COLOR_CYAN_DARK = theme == 5
+      ? blend565(COLOR_CYAN, COLOR_BG) : palette.dim;
+  COLOR_SELECT = theme == 5 ? STUDIO_COLORS[focus] : palette.selection;
   hasCachedFrame_ = false;
   renderedRevision_ = UINT32_MAX;
 }
@@ -346,6 +371,10 @@ void TftRenderer::drawMenu(const UiFrame& frame) {
     drawHome(frame);
     return;
   }
+  if (isThemeStudio(frame)) {
+    drawThemeStudio(frame);
+    return;
+  }
   const uint8_t count = frame.itemCount;
   if (count == 0) {
     tft_.setTextColor(COLOR_MUTED, COLOR_BG);
@@ -376,6 +405,46 @@ void TftRenderer::drawMenu(const UiFrame& frame) {
 bool TftRenderer::isHome(const UiFrame& frame) const {
   return frame.layout == UiLayout::Menu &&
       frame.title == "Scan-Track-Log" && frame.itemCount == 6;
+}
+
+bool TftRenderer::isThemeStudio(const UiFrame& frame) const {
+  return frame.layout == UiLayout::Menu && frame.title == "Theme Studio";
+}
+
+void TftRenderer::drawThemeStudio(const UiFrame& frame) {
+  // A miniature live dashboard preview, drawn with the same colors as home.
+  tft_.fillRoundRect(7, CONTENT_Y + 4, 298, 39, 5, COLOR_PANEL);
+  tft_.drawRoundRect(7, CONTENT_Y + 4, 298, 39, 5, COLOR_LINE);
+  tft_.fillRoundRect(13, CONTENT_Y + 9, 85, 28, 4, COLOR_BG);
+  tft_.drawRoundRect(13, CONTENT_Y + 9, 85, 28, 4, COLOR_LINE);
+  tft_.fillRoundRect(19, CONTENT_Y + 15, 19, 16, 3, COLOR_PANEL_ALT);
+  tft_.setTextSize(1);
+  tft_.setTextColor(COLOR_WHITE, COLOR_BG);
+  tft_.setCursor(44, CONTENT_Y + 19);
+  tft_.print(F("CANVAS"));
+
+  tft_.fillRoundRect(111, CONTENT_Y + 9, 85, 28, 4, COLOR_PANEL_ALT);
+  tft_.fillRoundRect(118, CONTENT_Y + 14, 3, 18, 1, COLOR_CYAN);
+  tft_.setTextColor(COLOR_CYAN, COLOR_PANEL_ALT);
+  tft_.setCursor(130, CONTENT_Y + 19);
+  tft_.print(F("ACCENT"));
+
+  tft_.fillRoundRect(209, CONTENT_Y + 9, 89, 28, 4, COLOR_PANEL_ALT);
+  tft_.drawRoundRect(209, CONTENT_Y + 9, 89, 28, 4, COLOR_SELECT);
+  tft_.setTextColor(COLOR_SELECT, COLOR_PANEL_ALT);
+  tft_.setCursor(232, CONTENT_Y + 19);
+  tft_.print(F("FOCUS"));
+
+  for (uint8_t index = 0; index < frame.itemCount && index < 5; ++index) {
+    const int16_t y = CONTENT_Y + 47 + index * 23;
+    drawMenuRow(y, frame.items[index], index == frame.selectedIndex, index);
+    if (index < 3) {
+      const uint16_t swatch = index == 0 ? COLOR_BG
+          : (index == 1 ? COLOR_CYAN : COLOR_SELECT);
+      tft_.fillRoundRect(277, y + 5, 18, 13, 3, swatch);
+      tft_.drawRoundRect(277, y + 5, 18, 13, 3, COLOR_WHITE);
+    }
+  }
 }
 
 void TftRenderer::drawHome(const UiFrame& frame) {
@@ -569,6 +638,11 @@ void TftRenderer::drawWideCard(
 }
 
 void TftRenderer::updateMenuPartial(const UiFrame& frame) {
+  if (isThemeStudio(frame)) {
+    tft_.fillRect(0, CONTENT_Y, SCREEN_WIDTH, CONTENT_HEIGHT, COLOR_BG);
+    drawThemeStudio(frame);
+    return;
+  }
   if (isHome(frame)) {
     if (!isHome(cachedFrame_)) {
       tft_.fillRect(0, CONTENT_Y, SCREEN_WIDTH, CONTENT_HEIGHT, COLOR_BG);

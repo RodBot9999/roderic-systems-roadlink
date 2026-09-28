@@ -37,7 +37,8 @@ public:
       BootCheckState state);
   void finishSystemCheck(const String& message);
   void setOtaAvailable(bool available);
-  void setTheme(uint8_t theme);
+  void setTheme(uint8_t theme, uint8_t canvas = 0,
+      uint8_t accent = 3, uint8_t focus = 5);
 
   void update(bool force = false);
   bool initialized() const;
@@ -52,6 +53,7 @@ private:
   void drawHeader(const UiFrame& frame);
   void drawFooter(const UiFrame& frame);
   void drawMenu(const UiFrame& frame);
+  void drawThemeStudio(const UiFrame& frame);
   void drawHome(const UiFrame& frame);
   void drawHomeCard(const UiFrame& frame, uint8_t index);
   void drawHomeGlyph(uint8_t index, int16_t x, int16_t y, uint16_t color);
@@ -83,6 +85,7 @@ private:
       uint8_t absoluteIndex);
   void drawScrollbar(uint8_t itemCount, uint8_t selectedIndex);
   bool isHome(const UiFrame& frame) const;
+  bool isThemeStudio(const UiFrame& frame) const;
 
   String cleanText(const String& value) const;
   String clippedText(const String& value, uint8_t maxChars) const;
@@ -101,6 +104,9 @@ private:
   bool initialized_ = false;
   bool otaAvailable_ = false;
   uint8_t themeId_ = 0xFF;
+  uint8_t customCanvas_ = 0xFF;
+  uint8_t customAccent_ = 0xFF;
+  uint8_t customFocus_ = 0xFF;
   bool hasCachedFrame_ = false;
   UiFrame cachedFrame_;
   uint32_t renderedRevision_ = UINT32_MAX;
