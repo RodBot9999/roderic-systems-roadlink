@@ -27,7 +27,8 @@ Los documentos de este directorio tienen como objetivo registrar:
 | Interfaz de bus CAN | `modulos/interfaz-bus-can.md` | Planeado |
 | GPS | `modulos/gps.md` | Planeado |
 | Pantalla TFT y encoder rotatorio | `modulos/interfaz-humana.md` | Planeado |
-| PCB, fuentes de alimentación y conexiones | `diseno-electronico/pcb-alimentacion-y-conexiones.md` | Planeado |
+| Interfaz de alimentación y plano de tierra | [Fuente LaTeX](informes/interfaz-alimentacion/informe-interfaz-alimentacion.tex) · [PDF](../../output/pdf/informe-interfaz-alimentacion.pdf) | Primera versión |
+| Resto de la PCB y conexiones | `diseno-electronico/pcb-alimentacion-y-conexiones.md` | Planeado |
 | Sistema RoadLink completo | `descripcion-general-roadlink.md` | Planeado para después de los documentos de módulos |
 
 ## Organización del material visual
