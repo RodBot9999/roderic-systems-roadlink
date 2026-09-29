@@ -24,7 +24,7 @@ Los documentos de este directorio tienen como objetivo registrar:
 | Controlador ESP32 | [Controlador ESP32](modulos/controlador-esp32.md) | Borrador inicial |
 | Comunicación celular | [Comunicación celular](modulos/comunicacion-celular.md) | Borrador inicial |
 | Informe formal del módulo celular | [Fuente LaTeX](informes/modulo-celular/informe-modulo-celular.tex) · [PDF](../../output/pdf/informe-modulo-celular.pdf) | Primera versión |
-| Interfaz de bus CAN | `modulos/interfaz-bus-can.md` | Planeado |
+| Interfaz de bus CAN | [Fuente LaTeX](informes/interfaz-bus-can/informe-interfaz-bus-can.tex) · [PDF](../../output/pdf/informe-interfaz-bus-can.pdf) | Primera versión |
 | GPS | `modulos/gps.md` | Planeado |
 | Pantalla TFT y encoder rotatorio | `modulos/interfaz-humana.md` | Planeado |
 | Interfaz de alimentación y plano de tierra | [Fuente LaTeX](informes/interfaz-alimentacion/informe-interfaz-alimentacion.tex) · [PDF](../../output/pdf/informe-interfaz-alimentacion.pdf) | Primera versión |
