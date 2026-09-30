@@ -79,9 +79,8 @@ son el mismo módulo ni toda trama CAN contiene una lectura OBD-II.
 El ESP32 no se conecta directamente a los dos cables del vehículo. En este
 montaje se comunica por SPI con un controlador MCP2515; la parte física del
 módulo CAN adapta sus señales a CAN-H y CAN-L. El documento distingue lo
-confirmado por el firmware de aquello que falta verificar en la placa y en
-una prueba vehicular. No se atribuyen capturas de tráfico o respuestas de
-una ECU que todavía no estén registradas como evidencia.
+confirmado por el firmware, las lecturas visibles en las fotografías de prueba
+y aquello que todavía falta verificar con mediciones o registros originales.
 
 \section{Recorrido de la señal y conexión}
 La ruta funcional parte del ESP32, pasa por el bus SPI y el MCP2515, continúa
@@ -193,11 +192,55 @@ return can_.sendFrame(requestId, false, 8, frame);
 \end{lstlisting}
 
 Estas consultas requieren modo Normal: una ECU no puede responder a una
-solicitud que RoadLink nunca transmitió. La presencia de los procedimientos
-en el código no sustituye una prueba documentada en un vehículo compatible.
+solicitud que RoadLink nunca transmitió. Las fotografías de la siguiente
+sección documentan pantallas de uso, aunque no sustituyen una traza de las
+tramas intercambiadas.
+
+\section{Evidencia fotográfica de funcionamiento}
+
+Las Figuras~\ref{fig:can-prueba} y \ref{fig:obd-prueba} muestran dos pantallas
+del prototipo proporcionadas por el autor. No se conoce la fecha de captura,
+el vehículo ni si ambas corresponden a la misma sesión. Por ello se registran
+como \emph{lecturas mostradas por RoadLink}, no como mediciones independientes
+ni como una secuencia temporal verificada.
+
+\begin{figure}[H]\centering
+  \begin{minipage}[t]{0.47\textwidth}\centering
+    \includegraphics[width=\linewidth,height=7.5cm,keepaspectratio]{../../recursos/imagenes/can-estadisticas-pantalla-roadlink.jpg}
+    \caption{Pantalla de estadísticas CAN del prototipo.}
+    \label{fig:can-prueba}
+  \end{minipage}\hfill
+  \begin{minipage}[t]{0.47\textwidth}\centering
+    \includegraphics[width=\linewidth,height=7.5cm,keepaspectratio]{../../recursos/imagenes/obd2-datos-vivos-pantalla-roadlink.jpg}
+    \caption{Pantalla de datos OBD-II del prototipo.}
+    \label{fig:obd-prueba}
+  \end{minipage}
+\end{figure}
+
+En la primera fotografía se leen \textbf{55\,305 tramas recibidas}, una tasa
+actual de \textbf{800 tramas/s} y un máximo mostrado de \textbf{2\,419
+tramas/s}. La pantalla registra un ID único, 55\,305 tramas extendidas,
+ninguna estándar y cero tramas transmitidas, errores de transmisión o
+desbordamientos de la tabla de IDs. Son contadores del firmware en ese
+instante, no una caracterización completa de la red.
+
+En la segunda fotografía aparece el mensaje ``Live PID snapshot complete''.
+Entre los valores legibles figuran \textbf{754 rpm}, \textbf{0 km/h},
+\textbf{96 $^\circ$C} de refrigerante, \textbf{11,8\,\%} de acelerador,
+\textbf{30 kPa} de presión del colector, \textbf{13,78 V} de voltaje del
+módulo y \textbf{39,6\,\%} de combustible. La pantalla indica además
+``Last update 11.4 s''; por tanto, la foto no demuestra que esos valores se
+estuvieran actualizando continuamente en el momento de tomarla.
+
+La pantalla CAN muestra exclusivamente tramas \emph{extendidas}, mientras que
+las solicitudes OBD-II descritas en el código usan identificadores estándar
+de 11 bits. Sin fecha, configuración y traza de cada prueba, no corresponde
+afirmar que ambas pantallas describen el mismo tráfico o que una explica a la
+otra. Esta diferencia debe comprobarse en una sesión de prueba registrada.
 
 \section{Comprobación y límites}
-La validación progresiva de la interfaz debe incluir:
+Las fotografías aportan evidencia de recepción CAN y de una pantalla OBD-II
+con valores decodificados. Para completar la validación se requiere además:
 \begin{itemize}
   \item alimentación, tierra común, niveles lógicos y continuidad del par
     CAN-H/CAN-L con el vehículo desconectado;
@@ -213,8 +256,8 @@ No se debe añadir terminación al bus del automóvil sin revisar la red y la
 placa concreta. Una lectura fallida tampoco demuestra por sí sola un defecto
 del MCP2515: pueden influir el protocolo admitido, el encendido del vehículo,
 la tasa CAN, el cableado, los niveles lógicos o la alimentación. Las
-mediciones del par, capturas de tramas y pruebas con una ECU real quedan
-pendientes de incorporarse como evidencias.
+mediciones del par, los registros originales de tramas y las condiciones de
+las pruebas mostradas quedan pendientes de incorporarse como evidencias.
 
 \section{Conclusiones}
 RoadLink separa la adquisición CAN de la interpretación OBD-II. El ESP32
@@ -223,5 +266,6 @@ comunica con el par CAN vehicular. El arranque en Listen-only permite observar
 sin transmitir; las consultas OBD-II requieren habilitar el envío. El firmware
 ya define conexiones, velocidad inicial, modos y operaciones diagnósticas,
 mientras que el pinout físico, la identificación del transceptor y las pruebas
-en vehículo deben documentarse antes de declarar validada la interfaz.
+fotografiadas deben ampliarse con registros y mediciones antes de declarar
+validada por completo la interfaz.
 \end{document}
