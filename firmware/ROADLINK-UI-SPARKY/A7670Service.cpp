@@ -3,6 +3,17 @@
 #include "AppConfig.h"
 #include "ModemReply.h"
 
+namespace {
+void appendDeviceId(String& json) {
+  // The ESP32 eFuse MAC is factory-set and survives firmware updates and NVS resets.
+  char id[16];
+  snprintf(id, sizeof(id), "RL-%012llX", static_cast<unsigned long long>(ESP.getEfuseMac()));
+  json += ",\"device_id\":\"";
+  json += id;
+  json += '"';
+}
+}
+
 A7670Service::A7670Service(
     GpsService& gps,
     ObdService& obd,
@@ -978,6 +989,7 @@ String A7670Service::buildPayload() const {
   json += key;
   json += "\",\"device\":\"roadlink\",\"uptime_ms\":";
   json += millis();
+  appendDeviceId(json);
   appendConfigJson(json);
   if (sendGps_) {
     json += ",\"gps\":{\"valid\":";
@@ -1040,6 +1052,7 @@ String A7670Service::buildHeartbeatPayload() const {
   json += key;
   json += "\",\"device\":\"roadlink\",\"type\":\"heartbeat\",\"uptime_ms\":";
   json += millis();
+  appendDeviceId(json);
   appendConfigJson(json);
   json += '}';
   return json;

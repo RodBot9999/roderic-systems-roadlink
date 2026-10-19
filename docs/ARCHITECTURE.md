@@ -1,12 +1,11 @@
 # Roderic Systems RoadLink Architecture
 
-ESP32 automotive CAN/GPS/OBD scanner with a renderer-independent UI, a 2.4-inch SPI TFT, a local phone web app, live WebSocket updates, and A7670SA cellular telemetry.
+ESP32 automotive CAN/GPS/OBD scanner with a 2.4-inch SPI TFT, A7670SA cellular telemetry, and a separate local Wi-Fi firmware update service.
 
 ## Required Arduino libraries
 
 - **ESP32 by Espressif Systems** board package.
 - **mcp_can** by Cory J. Fowler for the MCP2515.
-- **WebSockets** by Markus Sattler / Links2004 for `WebSocketsServer.h`.
 - **Adafruit GFX Library**.
 - **Adafruit ILI9341**.
 - `WiFi.h`, `WebServer.h`, and `SPI.h` are included with the ESP32 board package.
@@ -80,8 +79,7 @@ an enclosure, and validated connectors.
    - GPS receiver UART;
    - OBD service;
    - MCP2515 CAN controller;
-   - A7670SA modem;
-   - local WebSocket server.
+   - A7670SA modem.
 4. The MCP2515 initializes before the optional modem UART. CAN failures are
    registered as errors, while missing GPS or SIM modules are warnings.
 5. The optional-module probe is bounded and can be skipped with an encoder
@@ -101,11 +99,11 @@ The interface remains a folder/tree controlled by one rotary encoder:
 - Rotate left/right: move the selection.
 - Press: enter or activate.
 - Every submenu and detail screen contains an explicit `< Back` option.
-- The phone also provides a direct Back button, but the explicit Back item remains part of the shared UI model.
 
 ## Rendering architecture
 
-`MenuSystem` builds one canonical `UiFrame`. All renderers consume the same frame and revision:
+`MenuSystem` builds a canonical `UiFrame` for the TFT. Remote configuration
+updates the underlying settings model; it does not duplicate the menu screen:
 
 ```text
 CAN / OBD / GPS services
@@ -115,9 +113,9 @@ CAN / OBD / GPS services
           |
           v
        UiModel
-       /  |   \
-      /   |    \
- TFT renderer  WebSocket renderer  Serial mirror
+          |
+          v
+     TFT renderer
 ```
 
 ### `TftRenderer`
@@ -195,7 +193,6 @@ Scan-Track-Log
     ├── CAN Operating Mode
     ├── Serial CAN Stream
     ├── Serial UI Mirror
-    ├── Web UI
     ├── UI Refresh
     ├── OBD Poll Interval
     ├── About
@@ -208,19 +205,14 @@ and key editors also use explicit selection: rotate to choose a digit, press to
 edit it, rotate through `0`-`9`, and press again to finish that digit. Rotating
 past the digits exposes `SAVE CHANGES` and `CANCEL / BACK`.
 
-## Web interface
+## Local firmware updates
 
-The ESP32 creates its own local access point:
-
-```text
-SSID: RodBot-Scanner
-Password: rodtracklog
-Address: http://192.168.4.1
-HTTP port: 80
-WebSocket port: 81
-```
-
-The phone UI remains completely local. Its style was updated to match the TFT's black/cyan industrial-cyber theme. The WebSocket and TFT still consume the exact same `UiFrame`; neither contains duplicate navigation logic.
+`LocalFirmwareUpdateService` owns the only ESP32 Wi-Fi access point. It uses a
+device-specific `RoadLink-OTA-XXXXXX` SSID and a persistent, unique password.
+The authenticated upload page at `http://192.168.4.1/update` writes to the
+inactive OTA application partition. This service does not host a phone UI or
+WebSocket dashboard, and it does not use the A7670SA or cellular data. See the
+[Local Firmware Update guide](../firmware/RoadLink/LOCAL_FIRMWARE_UPDATE.md).
 
 ## CAN and OBD-II architecture
 
@@ -236,7 +228,7 @@ The controller still boots in Listen-only mode. Active OBD functions switch it t
 Composition root, TFT boot sequence, system checks, service initialization, and non-blocking update loop.
 
 ### `AppConfig.h`
-Physical pins, TFT rotation/frequency, network configuration, queue sizes, and timing defaults.
+Physical pins, TFT rotation/frequency, cellular defaults, queue sizes, and timing defaults.
 
 ### `TftRenderer.*`
 ILI9341 renderer, splash drawing, startup checks, menu/data/alert layouts, field pagination, and revision-based updates.
@@ -247,8 +239,9 @@ Packed 2-bit version of the uploaded 320x240 splash image.
 ### `UiModel.*`
 Canonical renderer-independent screen state and optional Serial mirror.
 
-### `WebUiService.*`
-Local HTTP page, live WebSocket transport, JSON serialization, and phone input queue.
+### `LocalFirmwareUpdateService.*`
+Authenticated local-Wi-Fi firmware upload, isolated from CAN, GPS, modem,
+streaming, and menu services.
 
 ### `MenuSystem.*`
 Tree navigation, screen definitions, actions, settings, and conversion of service snapshots into `UiFrame` objects.
@@ -291,9 +284,9 @@ published, preventing the boot renderer from being left on the check screen.
 2. Confirm TFT VCC/GND/backlight wiring before powering.
 3. Compile and upload.
 4. Verify the splash fills the display in landscape orientation and waits for an encoder press.
-5. Confirm the startup-check screen updates CAN and WebSocket status, then opens the first page after three seconds or immediately when pressed.
+5. Confirm the startup-check screen updates CAN and modem status, then opens the first page after three seconds or immediately when pressed.
 6. Rotate and press the encoder through every menu.
-7. Verify the phone and TFT always show the same logical screen.
+7. Verify menu navigation and setting persistence on the TFT.
 8. If the TFT appears rotated or inverted, change `AppConfig::TFT_ROTATION` between `1` and `3`.
 
 ## Validation status

@@ -2,11 +2,17 @@ const { app, BrowserWindow, ipcMain, shell } = require("electron");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
 const { TelemetryReceiver } = require("./telemetry-server.cjs");
+const { TripStore } = require("./trip-store.cjs");
 
 const isDevelopment = Boolean(process.env.ELECTRON_START_URL);
 let mainWindow = null;
 let receiver = null;
+let tripStore = null;
 let quitting = false;
+
+// The fleet map and charts do not need GPU acceleration. Software rendering
+// avoids black Chromium surfaces on Windows systems with unstable GPU drivers.
+app.disableHardwareAcceleration();
 
 app.setAppUserModelId("dev.roadlink.fleet");
 // v0.1.0 could leave an invisible elevated process locking Electron's default
@@ -95,7 +101,9 @@ function installFirewallRule(port) {
 }
 
 function registerReceiverIpc() {
+  ipcMain.on("app:get-version", (event) => { event.returnValue = app.getVersion(); });
   ipcMain.handle("receiver:get-state", () => receiver.state());
+  ipcMain.handle("receiver:configure-streaming", (_event, id, patch, revision) => receiver.queueStreamingConfig(id, patch, revision));
   ipcMain.handle("receiver:start", () => receiver.start());
   ipcMain.handle("receiver:stop", () => receiver.stop());
   ipcMain.handle("receiver:rotate-key", () => receiver.rotateKey());
@@ -104,11 +112,18 @@ function registerReceiverIpc() {
     if (Object.hasOwn(patch ?? {}, "port")) safePatch.port = Number(patch.port);
     if (Object.hasOwn(patch ?? {}, "accessKey")) safePatch.accessKey = String(patch.accessKey);
     if (Object.hasOwn(patch ?? {}, "autoPortMap")) safePatch.autoPortMap = patch.autoPortMap === true;
+    if (Object.hasOwn(patch ?? {}, "freeTunnel")) safePatch.freeTunnel = patch.freeTunnel === true;
     if (Object.hasOwn(patch ?? {}, "enabled")) safePatch.enabled = patch.enabled === true;
     return receiver.updateConfig(safePatch);
   });
   ipcMain.handle("receiver:add-firewall-rule", () => installFirewallRule(receiver.state().port));
   ipcMain.handle("receiver:open-log-folder", () => shell.showItemInFolder(receiver.state().logPath));
+  ipcMain.handle("trips:list", () => tripStore.list());
+  ipcMain.handle("trips:active", () => tripStore.activeTrip());
+  ipcMain.handle("trips:start", (_event, details) => tripStore.start(details));
+  ipcMain.handle("trips:stop", () => tripStore.stop());
+  ipcMain.handle("trips:get", (_event, id) => tripStore.get(id));
+  ipcMain.handle("trips:open-folder", () => shell.openPath(tripStore.root));
 }
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
@@ -128,8 +143,14 @@ if (!hasSingleInstanceLock) {
 
   app.whenReady().then(async () => {
     receiver = new TelemetryReceiver({ dataDirectory: app.getPath("userData") });
+    tripStore = new TripStore(app.getPath("userData"));
     receiver.on("state", (state) => sendToRenderer("receiver:state", state));
-    receiver.on("telemetry", (event) => sendToRenderer("receiver:telemetry", event));
+    receiver.on("heartbeat", (event) => sendToRenderer("receiver:heartbeat", event));
+    receiver.on("telemetry", (event) => {
+      try { tripStore.ingest(event); } catch (error) { console.error("Trip recording failed", error); sendToRenderer("trips:error", error.message); }
+      sendToRenderer("receiver:telemetry", event);
+    });
+    tripStore.on("change", (trip) => sendToRenderer("trips:change", trip));
     registerReceiverIpc();
     createWindow();
     if (receiver.config.enabled) {
@@ -149,6 +170,9 @@ app.on("before-quit", (event) => {
   if (quitting || !receiver) return;
   event.preventDefault();
   quitting = true;
+  if (tripStore?.active) {
+    try { tripStore.stop(); } catch (error) { console.error("Could not finalize active trip", error); }
+  }
   receiver.stop({ disable: false }).finally(() => app.quit());
 });
 

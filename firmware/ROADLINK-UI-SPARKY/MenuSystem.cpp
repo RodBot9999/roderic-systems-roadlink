@@ -1,5 +1,6 @@
 #include "MenuSystem.h"
 #include "AppConfig.h"
+#include "FirmwareRelease.h"
 #include "UiDetailLayout.h"
 
 MenuSystem::MenuSystem(
@@ -1782,6 +1783,8 @@ uint8_t MenuSystem::selectedFieldCount(uint16_t mask) const {
 }
 
 void MenuSystem::fillAbout(UiFrame& frame) const {
+  addField(frame, "Firmware version", FirmwareRelease::VERSION);
+  addField(frame, "Release name", FirmwareRelease::NAME);
   addField(frame, "Project", "Roderic Systems RoadLink");
   addField(frame, "Controller", "ESP32 + MCP2515 8 MHz");
   addField(frame, "UI architecture", "UiModel -> TFT only");

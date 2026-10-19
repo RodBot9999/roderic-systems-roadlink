@@ -5,7 +5,6 @@
 - Arduino IDE 2.x
 - ESP32 board package by Espressif Systems
 - `mcp_can` by Cory J. Fowler
-- `WebSockets` by Markus Sattler / Links2004
 - Adafruit GFX Library
 - Adafruit ILI9341
 
@@ -74,21 +73,18 @@ enabled A7670SA AT response. Missing modules produce overridable warnings.
 
 1. A full-screen Roderic Systems splash appears.
 2. Press the rotary encoder to continue.
-3. The display reports rotary input, UI, GPS, OBD, CAN, and WebSocket status.
+3. The display reports rotary input, UI, GPS, OBD, CAN, and modem status.
 4. The completed status page advances after three seconds or immediately when the encoder is pressed.
 5. If CAN initialization fails, RoadLink opens the module-error screen with an override option.
 
-## Local web interface
+## Local firmware update access point
 
-The default firmware creates its own Wi-Fi access point:
-
-```text
-SSID: RodBot-Scanner
-Password: rodtracklog
-Address: http://192.168.4.1
-```
-
-These values can be changed in `firmware/RoadLink/AppConfig.h`.
+After the OTA-capable firmware is first uploaded over USB, it creates a
+`RoadLink-OTA-XXXXXX` Wi-Fi network for firmware uploads only. Its unique
+password is printed at 115200 baud on Serial Monitor and stored separately in
+NVS. The authenticated upload page is `http://192.168.4.1/update`; there is
+no phone dashboard or WebSocket service at the root address. See the
+[Local Firmware Update guide](../firmware/RoadLink/LOCAL_FIRMWARE_UPDATE.md).
 
 ## First hardware checks
 
@@ -109,9 +105,11 @@ Check TFT controller compatibility, CS `GPIO12`, DC `GPIO14`, RESET `GPIO15`, sh
 
 Check MCP2515 power, CS `GPIO23`, INT `GPIO4`, SPI wiring, oscillator selection, and the configured bitrate.
 
-### Web page unavailable
+### Firmware update page unavailable
 
-Confirm the phone is connected to the RoadLink access point and open `http://192.168.4.1` directly.
+Confirm the computer is connected to `RoadLink-OTA-XXXXXX` and open
+`http://192.168.4.1/update`. If the network is absent, check the Serial
+Monitor's `[OTA]` messages and verify the board uses an OTA-capable partition.
 
 ### A7670SA does not register
 
