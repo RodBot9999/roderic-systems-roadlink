@@ -34,7 +34,7 @@ test("standalone Python simulator crosses the real HTTP receiver boundary", {
   });
 
   const telemetry = new Promise((resolve) => receiver.once("telemetry", resolve));
-  const simulatorPath = path.join(__dirname, "..", "..", "tools", "virtual_roadlink", "virtual_roadlink.py");
+  const simulatorPath = path.join(__dirname, "..", "..", "..", "..", "tools", "virtual_roadlink", "virtual_roadlink.py");
   const processResult = await execFileAsync(process.env.ROADLINK_PYTHON, [
     simulatorPath,
     "--once",

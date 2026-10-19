@@ -2,15 +2,22 @@
 
 RoadLink Fleet is a Windows desktop dashboard for monitoring multiple RoadLink vehicle telemetry units. It is an Electron + React application so the interface stays approachable, the code remains easy to extend, and the application can be packaged as a normal Windows `.exe`.
 
-Version 0.2.0 adds a real, firmware-compatible telemetry receiver and a separate Python Virtual RoadLink. The dashboard remains a normal Electron Windows application; networking and privileged operations run outside the renderer.
+Version 0.4.4 adds an About section in Preferences that shows the installed app version reported by Electron. Version 0.4.3 fixes GPS-less heartbeats after a GPS fix and isolates malformed telemetry at the HTTP and dashboard boundaries. Version 0.4.2 hardened live-device state updates, uses software rendering for Windows GPU compatibility, and shows a readable error if a screen fails to render. Version 0.4.1 fixed startup of the installed app. Version 0.4.0 added the Devices grid, local trip recording/replay, and trip analytics. It preserves the 0.3.2 unattended Pinggy test tunnel and 0.3.0 bidirectional streaming/heartbeat controls. The dashboard remains a normal Electron Windows application; networking and privileged operations run outside the renderer.
 
 ## What works now
 
+- Devices grid with stream-aware health warnings and no invented GPS markers
+- Local trip recording, route review, summary, graphs, and sample-by-sample replay
+- Analytics over completed trips, filterable by device
+- Independent authenticated `/heartbeat` receiver and persistent device settings queue
+- Desktop Streaming panel with START/STOP, HH:MM:SS interval, GPS/OBD toggles and nine individual OBD fields
+- Pending/applied/conflict status; device-side edits update the dashboard on check-in
 - Live multi-vehicle map using open OpenStreetMap data and CARTO tiles
 - Optional MapTiler satellite imagery configured from Preferences
 - Authenticated HTTP `POST /telemetry` receiver compatible with the current firmware
 - Exact receiver IP, TCP port, and six-digit access key shown inside the app
 - Optional NAT-PMP then UPnP public-port mapping with lease renewal and cleanup
+- Optional free Pinggy TCP tunnel for CGNAT testing, using Windows OpenSSH and an app-specific generated identity with no extra account or bundled executable
 - Explicit Windows Firewall private-network rule action with UAC
 - Append-only JSONL telemetry logging with the access key removed
 - Real live-device discovery, GPS paths, maps, metrics, and charts
@@ -31,7 +38,9 @@ Version 0.2.0 adds a real, firmware-compatible telemetry receiver and a separate
 
 ## Important current boundary
 
-The direct receiver now communicates with the existing RoadLink HTTP protocol. The new A7670SA firmware adapter is still pending the physical module and its exact firmware revision. Current RoadLink firmware does not send a unique device ID and does not accept reporting-rate commands, so those two fields must be added for a reliable multi-device, two-way fleet. The implemented contract, network behavior, and production migration path are documented in [`docs/TELEMETRY_PROTOCOL.md`](docs/TELEMETRY_PROTOCOL.md).
+The receiver communicates with the A7670SA firmware's telemetry and configuration heartbeat protocol. Open **Streaming** in the sidebar after the first heartbeat; a device can be configured even while telemetry is stopped. Settings remain pending until reported back by the device. Heartbeats do not create telemetry samples or extend GPS paths.
+
+The SPARKY firmware source in this workspace adds a stable `device_id` to telemetry and heartbeat packets. Previously installed firmware will use its old identity until this firmware is uploaded. Trip files are stored under the app-data `trips` folder while this desktop app is running; there is no device-side recording or backfill. Stronger transport authentication remains required for a deployed fleet. See [`docs/TELEMETRY_PROTOCOL.md`](docs/TELEMETRY_PROTOCOL.md).
 
 ## Project structure
 
@@ -41,11 +50,12 @@ electron/
   preload.cjs             Isolated typed desktop bridge
   telemetry-server.cjs    HTTP authentication, logging, and receiver state
   port-mapper.cjs         NAT-PMP and UPnP mapping lifecycle
+  pinggy-tunnel.cjs       Temporary outbound SSH tunnel lifecycle and address parsing
 src/
   App.tsx                 Fleet state, receiver controls, map, and charts
   main.tsx                React entry point
   styles.css              Visual system and responsive desktop layout
-../tools/virtual_roadlink/
+../../../tools/virtual_roadlink/
   virtual_roadlink.py     Standalone simulator GUI, CLI, drive model, transport
   virtual_roadlink.pyw    Double-click Windows launcher
   run_virtual_roadlink.bat
@@ -70,6 +80,12 @@ pnpm dev
 
 Satellite view can be configured inside the app, or a development default can be supplied through `VITE_MAPTILER_KEY` in a local `.env` file. Never commit a production key to the repository.
 
+For cellular testing when router mapping fails, open **Receiver** and enable
+**Free Pinggy test tunnel**. Copy the resolved IPv4 address and TCP port into
+RoadLink. The free address normally expires after 60 minutes and changes when
+restarted. Router mapping and the tunnel are separate features and can be
+enabled or disabled independently.
+
 Production UI build:
 
 ```powershell
@@ -80,7 +96,7 @@ Protocol and receiver tests:
 
 ```powershell
 pnpm test
-py -3 -m unittest ..\tools\virtual_roadlink\test_virtual_roadlink.py -v
+py -3 -m unittest ..\..\..\tools\virtual_roadlink\test_virtual_roadlink.py -v
 ```
 
 Windows installer:
@@ -89,7 +105,8 @@ Windows installer:
 pnpm run dist:win
 ```
 
-Installer output is written to `release/`.
+Installer output is written to `release/`. The current installer is also
+published at `ROADLINK APP/RoadLink-Fleet-Setup-0.4.4-x64.exe` in the repository.
 
 ## Security choices
 
@@ -106,9 +123,9 @@ Installer output is written to `release/`.
 
 ## Suggested next milestones
 
-1. Add a stable device ID/IMEI and A7670SA transport to the physical firmware.
+1. Add a stable device ID/IMEI to the physical firmware.
 2. Add a hosted TLS ingest service for CGNAT-safe deployments and durable history.
-3. Implement device command acknowledgements and focus-mode expiry.
+3. Validate two-way settings with the physical modem; add explicit rejection reasons and focus-mode expiry.
 4. Persist trip history in a queryable local or hosted database and add playback/export.
 5. Add signed releases, automatic updates, and a RoadLink application icon.
 

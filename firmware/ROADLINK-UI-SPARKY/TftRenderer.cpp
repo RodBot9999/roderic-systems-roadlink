@@ -614,6 +614,14 @@ void TftRenderer::drawWideCard(
   tft_.setTextColor(COLOR_CYAN, COLOR_PANEL);
   tft_.setCursor(x + 13, y + 4);
   tft_.print(clippedText(label, 48));
+  if (label == "Firmware version") {
+    tft_.setTextSize(3);
+    tft_.setTextColor(COLOR_WHITE, COLOR_PANEL);
+    tft_.setCursor(x + 13, y + 16);
+    tft_.print(clippedText(value, 14));
+    tft_.setTextSize(1);
+    return;
+  }
   tft_.setTextColor(COLOR_WHITE, COLOR_PANEL);
   String remaining = value;
   for (uint8_t line = 0; line < 3; ++line) {

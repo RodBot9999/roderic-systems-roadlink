@@ -16,6 +16,7 @@ import {
   FolderOpen,
   Gauge,
   Globe2,
+  Info,
   KeyRound,
   Map as MapIcon,
   MapPin,
@@ -40,11 +41,14 @@ import {
   Zap,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { StreamingPanel } from "./StreamingPanel";
 import type {
   LayerGroup,
   Map as LeafletMap,
   TileLayer,
 } from "leaflet";
+import { AnalyticsPage, DevicesGrid, TripsPage } from "./FleetPages";
+import { liveGpsPosition } from "./live-gps";
 
 type DeviceStatus = "moving" | "parked" | "offline";
 type ChartMetric = "speed" | "rpm" | "coolant";
@@ -71,6 +75,13 @@ type RoadLinkDevice = {
   status: DeviceStatus;
   latitude: number;
   longitude: number;
+  hasGpsFix?: boolean;
+  gpsEnabled?: boolean;
+  obdEnabled?: boolean;
+  obdFields?: number;
+  obdWarning?: boolean;
+  obdMissing?: string[];
+  streamRunning?: boolean;
   speed: number;
   rpm: number;
   coolant: number;
@@ -104,7 +115,17 @@ type LiveDeviceMetadata = Record<string, Pick<RoadLinkDevice, "nickname" | "vehi
 
 function readLiveMetadata(): LiveDeviceMetadata {
   try {
-    return JSON.parse(localStorage.getItem(LIVE_META_STORE_KEY) ?? "{}") as LiveDeviceMetadata;
+    const parsed: unknown = JSON.parse(localStorage.getItem(LIVE_META_STORE_KEY) ?? "{}");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed).filter(([, value]) => value && typeof value === "object" && !Array.isArray(value)).map(([id, value]) => {
+      const entry = value as Record<string, unknown>;
+      return [id, {
+        nickname: typeof entry.nickname === "string" ? entry.nickname.slice(0, 128) : id,
+        vehicle: typeof entry.vehicle === "string" ? entry.vehicle.slice(0, 128) : "Unassigned vehicle",
+        plate: typeof entry.plate === "string" ? entry.plate.slice(0, 64) : "No plate",
+        pollRate: typeof entry.pollRate === "number" && Number.isFinite(entry.pollRate) && entry.pollRate > 0 && entry.pollRate <= 3600 ? entry.pollRate : 30,
+      }];
+    })) as LiveDeviceMetadata;
   } catch {
     return {};
   }
@@ -131,10 +152,13 @@ function finiteNumber(value: unknown, fallback: number) {
 }
 
 function telemetryIdentity(event: RoadLinkTelemetry) {
-  if (event.device_id?.trim()) return event.device_id.trim().toUpperCase();
-  if (event.imei?.trim()) return `IMEI-${event.imei.trim()}`;
-  if (event.device?.trim() && event.device.trim().toLowerCase() !== "roadlink") return event.device.trim().toUpperCase();
-  const client = event._client.replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const deviceId = typeof event.device_id === "string" ? event.device_id.trim() : "";
+  if (deviceId) return deviceId.toUpperCase();
+  const imei = typeof event.imei === "string" ? event.imei.trim() : "";
+  if (imei) return `IMEI-${imei}`;
+  const device = typeof event.device === "string" ? event.device.trim() : "";
+  if (device && device.toLowerCase() !== "roadlink") return device.toUpperCase();
+  const client = String(event._client ?? "unknown").replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "");
   return `ROADLINK-${client || "UNKNOWN"}`.toUpperCase();
 }
 
@@ -143,26 +167,41 @@ function mergeLiveTelemetry(current: RoadLinkDevice[], event: RoadLinkTelemetry)
   const existing = current.find((device) => device.id === id);
   const saved = readLiveMetadata()[id];
   const receivedAt = Number.isFinite(Date.parse(event._received_at)) ? Date.parse(event._received_at) : Date.now();
+  const heartbeat = event.type === "heartbeat";
   const speed = Math.max(0, finiteNumber(event.obd?.speed_kmh, finiteNumber(event.gps?.speed_kmh, existing?.speed ?? 0)));
   const rpm = Math.max(0, Math.round(finiteNumber(event.obd?.rpm, existing?.rpm ?? 0)));
   const coolant = Math.round(finiteNumber(event.obd?.coolant_c, existing?.coolant ?? 0));
   const signalFromRssi = event.modem?.rssi == null ? 0 : Math.max(1, Math.min(5, Math.ceil(event.modem.rssi / 6.2)));
   const signal = Math.round(finiteNumber(event.modem?.signal_bars, signalFromRssi || existing?.signal || 0));
-  const latitude = finiteNumber(event.gps?.latitude, existing?.latitude ?? 20.6767);
-  const longitude = finiteNumber(event.gps?.longitude, existing?.longitude ?? -103.3651);
-  const sample = { timestamp: receivedAt, speed: Math.round(speed), rpm, coolant, latitude, longitude };
+  const gpsEnabled = event.config?.gps ?? existing?.gpsEnabled ?? Boolean(event.gps);
+  const obdEnabled = event.config?.obd ?? existing?.obdEnabled ?? Boolean(event.obd);
+  const { hasGpsFix, latitude, longitude } = liveGpsPosition(event, existing);
+  const sample = { timestamp: receivedAt, speed: Math.round(speed), rpm, coolant,
+    latitude: hasGpsFix ? latitude : undefined, longitude: hasGpsFix ? longitude : undefined };
+  const obdFields = event.config?.obd_fields ?? existing?.obdFields ?? 0;
+  const obdKeys = ["rpm", "speed_kmh", "coolant_c", "throttle_pct", "map_kpa", "intake_c", "timing_deg", "voltage_v", "fuel_pct"] as const;
+  const obdLabels = ["RPM", "speed", "coolant", "throttle", "manifold pressure", "intake temperature", "timing", "voltage", "fuel level"];
+  const obdMissing = event.obd ? obdKeys.flatMap((key, index) => obdFields & (1 << index) && event.obd?.[key] == null ? [obdLabels[index]] : []) : existing?.obdMissing ?? [];
+  const obdWarning = obdEnabled && Boolean(event.obd) && obdMissing.length > 0;
 
   const next: RoadLinkDevice = {
     id,
     nickname: existing?.nickname ?? saved?.nickname ?? id,
     vehicle: existing?.vehicle ?? saved?.vehicle ?? "Unassigned vehicle",
     plate: existing?.plate ?? saved?.plate ?? "No plate",
-    imei: event.imei?.trim() || existing?.imei || "Not reported",
-    firmware: event.firmware?.trim() || existing?.firmware || "RoadLink firmware",
+    imei: typeof event.imei === "string" ? event.imei.trim() || existing?.imei || "Not reported" : existing?.imei || "Not reported",
+    firmware: typeof event.firmware === "string" ? event.firmware.trim() || existing?.firmware || "RoadLink firmware" : existing?.firmware || "RoadLink firmware",
     color: existing?.color ?? stableColor(id),
-    status: speed > 1 ? "moving" : "parked",
+    status: heartbeat && event.config?.running === false ? "parked" : speed > 1 ? "moving" : "parked",
     latitude,
     longitude,
+    hasGpsFix,
+    gpsEnabled,
+    obdEnabled,
+    obdFields,
+    obdWarning: event.obd ? obdWarning : existing?.obdWarning ?? false,
+    obdMissing,
+    streamRunning: event.config?.running ?? existing?.streamRunning ?? false,
     speed: Math.round(speed),
     rpm,
     coolant,
@@ -172,9 +211,28 @@ function mergeLiveTelemetry(current: RoadLinkDevice[], event: RoadLinkTelemetry)
     odometer: finiteNumber(event.obd?.odometer_km, existing?.odometer ?? 0),
     pollRate: existing?.pollRate ?? saved?.pollRate ?? 30,
     updatedAt: receivedAt,
-    history: [...(existing?.history ?? []).slice(-179), sample],
+    history: heartbeat ? existing?.history ?? [] : [...(existing?.history ?? []).slice(-179), sample],
   };
   return existing ? current.map((device) => device.id === id ? next : device) : [...current, next];
+}
+
+function usableLiveEvent(value: unknown): value is RoadLinkTelemetry {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const event = value as Record<string, unknown>;
+  if (typeof event._received_at !== "string" || typeof event._client !== "string") return false;
+  for (const field of ["gps", "obd", "modem", "config"]) {
+    const section = event[field];
+    if (section !== undefined && section !== null && (typeof section !== "object" || Array.isArray(section))) return false;
+  }
+  return true;
+}
+
+function deviceHealth(device: Pick<RoadLinkDevice, "status" | "gpsEnabled" | "hasGpsFix" | "obdEnabled" | "obdWarning" | "obdMissing" | "streamRunning">) {
+  if (device.status === "offline") return { level: "red", message: "Disconnected — no recent check-in", details: ["No recent heartbeat or telemetry"] };
+  const details: string[] = [];
+  if (device.streamRunning && device.gpsEnabled && !device.hasGpsFix) details.push("GPS enabled, waiting for a fix");
+  if (device.streamRunning && device.obdEnabled && device.obdWarning) details.push(`OBD missing: ${device.obdMissing?.join(", ") || "selected readings"}`);
+  return details.length ? { level: "yellow", message: details[0], details } : { level: "green", message: device.streamRunning ? "Enabled streams healthy" : "Connected · streaming stopped", details: [] };
 }
 
 function seededHistory(speed: number, rpm: number, coolant: number) {
@@ -411,6 +469,7 @@ function RoadLinkMap({
   const markersRef = useRef<LayerGroup | null>(null);
   const tileRef = useRef<TileLayer | null>(null);
   const leafletRef = useRef<typeof import("leaflet") | null>(null);
+  const [mapReady, setMapReady] = useState(false);
 
   useEffect(() => {
     let disposed = false;
@@ -433,6 +492,7 @@ function RoadLinkMap({
       }).addTo(map);
       markersRef.current = L.layerGroup().addTo(map);
       mapRef.current = map;
+      setMapReady(true);
       window.setTimeout(() => map.invalidateSize(), 80);
     })();
 
@@ -456,7 +516,7 @@ function RoadLinkMap({
       attribution: source.attribution,
     }).addTo(map);
     tileRef.current.bringToBack();
-  }, [mapStyle, mapTilerKey]);
+  }, [mapStyle, mapTilerKey, mapReady]);
 
   useEffect(() => {
     const L = leafletRef.current;
@@ -466,22 +526,19 @@ function RoadLinkMap({
 
     devices.forEach((device) => {
       if (device.id === selectedId && device.history.length > 1) {
-        const actualPath = device.history
-          .slice(-80)
-          .filter((sample) => sample.latitude != null && sample.longitude != null)
-          .map((sample) => [sample.latitude as number, sample.longitude as number] as [number, number]);
-        const path = actualPath.length > 1 ? actualPath : device.history.slice(-12).map((_, index, samples) => {
-          const distance = samples.length - index;
-          return [device.latitude - distance * 0.00028, device.longitude - distance * 0.00034] as [number, number];
+        let segment: [number, number][] = [];
+        const drawSegment = () => {
+          if (segment.length > 1) L.polyline(segment, { color: device.color, weight: 3, opacity: 0.7, dashArray: "2 8" }).addTo(layer);
+          segment = [];
+        };
+        device.history.slice(-80).forEach((sample) => {
+          if (sample.latitude == null || sample.longitude == null) { drawSegment(); return; }
+          segment.push([sample.latitude, sample.longitude]);
         });
-        if (path.at(-1)?.[0] !== device.latitude || path.at(-1)?.[1] !== device.longitude) path.push([device.latitude, device.longitude]);
-        L.polyline(path, {
-          color: device.color,
-          weight: 3,
-          opacity: 0.7,
-          dashArray: "2 8",
-        }).addTo(layer);
+        drawSegment();
       }
+
+      if (device.hasGpsFix === false) return;
 
       const isSelected = device.id === selectedId;
       const marker = L.circleMarker([device.latitude, device.longitude], {
@@ -507,17 +564,17 @@ function RoadLinkMap({
       });
       marker.on("click", () => onSelect(device.id));
     });
-  }, [devices, selectedId, onSelect]);
+  }, [devices, selectedId, onSelect, mapReady]);
 
   useEffect(() => {
     const selected = devices.find((device) => device.id === selectedId);
-    if (!selected || !mapRef.current) return;
+    if (!selected || selected.hasGpsFix === false || !mapRef.current) return;
     mapRef.current.flyTo(
       [selected.latitude, selected.longitude],
       Math.max(mapRef.current.getZoom(), 14),
       { duration: 0.65 },
     );
-  }, [selectedId]);
+  }, [selectedId, mapReady]);
 
   return <div className="map-canvas" ref={containerRef} aria-label="Live fleet map" />;
 }
@@ -641,11 +698,12 @@ function StatusDot({ status }: { status: DeviceStatus }) {
 }
 
 export default function App() {
+  const [page, setPage] = useState<"overview" | "devices" | "trips" | "analytics">("overview");
   const [devices, setDevices] = useState<RoadLinkDevice[]>(readDevices);
   const [liveDevices, setLiveDevices] = useState<RoadLinkDevice[]>([]);
   const [settings, setSettings] = useState<AppSettings>(readSettings);
-  const [selectedId, setSelectedId] = useState(devices[0]?.id ?? "");
-  const [focusedId, setFocusedId] = useState(devices[0]?.id ?? "");
+  const [selectedId, setSelectedId] = useState(settings.demoMode ? devices[0]?.id ?? "" : "");
+  const [focusedId, setFocusedId] = useState(settings.demoMode ? devices[0]?.id ?? "" : "");
   const [search, setSearch] = useState("");
   const [chartMetric, setChartMetric] = useState<ChartMetric>("speed");
   const [now, setNow] = useState(Date.now());
@@ -653,6 +711,7 @@ export default function App() {
   const [showAdd, setShowAdd] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showReceiver, setShowReceiver] = useState(false);
+  const [showStreaming, setShowStreaming] = useState(false);
   const [receiverState, setReceiverState] = useState<ReceiverState | null>(null);
   const [receiverPortDraft, setReceiverPortDraft] = useState("8080");
   const [receiverBusy, setReceiverBusy] = useState(false);
@@ -700,19 +759,30 @@ export default function App() {
       setReceiverPortDraft(String(state.port));
     });
     const removeTelemetryListener = receiver.onTelemetry((telemetry) => {
+      if (!usableLiveEvent(telemetry)) return;
       const identity = telemetryIdentity(telemetry);
       setLiveDevices((current) => {
-        const next = mergeLiveTelemetry(current, telemetry);
-        if (!settings.demoMode) {
-          setSelectedId((selectedDevice) => next.some((device) => device.id === selectedDevice) ? selectedDevice : identity);
-          setFocusedId((focusedDevice) => next.some((device) => device.id === focusedDevice) ? focusedDevice : identity);
-        }
-        return next;
+        try { return mergeLiveTelemetry(current, telemetry); }
+        catch (error) { console.warn("Ignored malformed RoadLink telemetry event", error); return current; }
       });
+      if (!settings.demoMode) {
+        setSelectedId((selectedDevice) => selectedDevice || identity);
+        setFocusedId((focusedDevice) => focusedDevice || identity);
+      }
+    });
+    const removeHeartbeatListener = receiver.onHeartbeat((heartbeat) => {
+      if (!usableLiveEvent(heartbeat)) return;
+      const identity = telemetryIdentity(heartbeat);
+      setLiveDevices((current) => {
+        try { return mergeLiveTelemetry(current, heartbeat); }
+        catch (error) { console.warn("Ignored malformed RoadLink heartbeat event", error); return current; }
+      });
+      if (!settings.demoMode) setSelectedId((id) => id || identity);
     });
     return () => {
       removeStateListener();
       removeTelemetryListener();
+      removeHeartbeatListener();
     };
   }, [settings.demoMode]);
 
@@ -942,6 +1012,12 @@ export default function App() {
   const chartLabel = chartMetric === "speed" ? "Speed" : chartMetric === "rpm" ? "Engine speed" : "Coolant";
   const focused = Boolean(selected && focusedId === selected.id);
   const receiverHealthy = receiverState?.running === true;
+  const tunnelActive = receiverState?.tunnel.status === "active";
+  const tunnelStarting = receiverState?.tunnel.status === "starting";
+  const receiverPublicIp = tunnelActive ? receiverState?.tunnel.publicIp : receiverState?.mapping?.publicIp;
+  const receiverPublicPort = tunnelActive ? receiverState?.tunnel.publicPort : receiverState?.mapping?.publicPort;
+  const tunnelMinutesLeft = receiverState?.tunnel.expiresAt
+    ? Math.max(0, Math.ceil((Date.parse(receiverState.tunnel.expiresAt) - now) / 60000)) : null;
   const sourceLabel = settings.demoMode ? "Demo simulator" : receiverHealthy ? "Receiver listening" : "Receiver stopped";
 
   return (
@@ -962,18 +1038,19 @@ export default function App() {
         </div>
 
         <nav className="primary-nav" aria-label="Primary navigation">
-          <button className="nav-item is-active"><MapIcon size={18} /><span>Fleet overview</span></button>
-          <button className="nav-item" onClick={() => setToast("Trip history will use the same telemetry store in the next milestone")}><Navigation size={18} /><span>Trips</span><small>Soon</small></button>
-          <button className="nav-item" onClick={() => setToast("Fleet-wide reports are planned after live ingestion")}><BarChart3 size={18} /><span>Analytics</span><small>Soon</small></button>
-          <button className="nav-item" onClick={() => setToast(settings.demoMode ? "All demo devices are visible in the fleet list" : `${liveDevices.length} authenticated live device${liveDevices.length === 1 ? "" : "s"}`)}><Database size={18} /><span>Devices</span><span className="nav-count">{activeDevices.length}</span></button>
+          <button className={`nav-item ${page === "overview" ? "is-active" : ""}`} onClick={() => setPage("overview")}><MapIcon size={18} /><span>Fleet overview</span></button>
+          <button className={`nav-item ${page === "trips" ? "is-active" : ""}`} onClick={() => setPage("trips")}><Navigation size={18} /><span>Trips</span></button>
+          <button className={`nav-item ${page === "analytics" ? "is-active" : ""}`} onClick={() => setPage("analytics")}><BarChart3 size={18} /><span>Analytics</span></button>
+          <button className={`nav-item ${page === "devices" ? "is-active" : ""}`} onClick={() => setPage("devices")}><Database size={18} /><span>Devices</span><span className="nav-count">{activeDevices.length}</span></button>
           <button className="nav-item" onClick={() => setShowReceiver(true)}><Network size={18} /><span>Receiver</span><small>{receiverHealthy ? "Live" : "Open"}</small></button>
+          <button className="nav-item" onClick={() => setShowStreaming(true)}><Sliders size={18} /><span>Streaming</span><small>{receiverState?.streamingDevices?.length ?? 0}</small></button>
         </nav>
 
         <div className="sidebar-spacer" />
         <button className="ingest-card ingest-card-button" onClick={() => setShowReceiver(true)}>
           <div className="ingest-card-head"><Server size={16} /><span>Ingest service</span></div>
           <strong>{receiverHealthy ? `TCP ${receiverState?.port}` : "Receiver stopped"}</strong>
-          <p>{receiverState?.publicEndpoint ? `${receiverState.mapping?.method} public endpoint ready.` : "Local HTTP receiver for RoadLink LTE packets."}</p>
+          <p>{receiverState?.publicEndpoint ? `${tunnelActive ? "Pinggy" : receiverState.mapping?.method ?? "Public"} endpoint ready.` : "Local HTTP receiver for RoadLink LTE packets."}</p>
           <div className={`ingest-health ${receiverHealthy ? "" : "is-offline"}`}><span /><span>{receiverHealthy ? "Listening" : "Not listening"}</span><b>{receiverState?.packetCount ?? 0} pkt</b></div>
         </button>
         <button className="nav-item settings-button" onClick={() => setShowSettings(true)}><Settings size={18} /><span>Preferences</span></button>
@@ -981,10 +1058,10 @@ export default function App() {
       </aside>
 
       <main className="main-content">
-        <header className="page-header">
+        {(page === "overview" || page === "devices") && <><header className="page-header">
           <div>
-            <p className="eyebrow">Operations / Live fleet</p>
-            <h1>{settings.demoMode ? "Good evening, fleet is moving." : liveDevices.length ? "Live RoadLinks are reporting." : "Receiver ready for a RoadLink."}</h1>
+            <p className="eyebrow">Operations / {page === "devices" ? "Devices" : "Live fleet"}</p>
+            <h1>{page === "devices" ? "Your RoadLink devices." : settings.demoMode ? "Good evening, fleet is moving." : liveDevices.length ? "Live RoadLinks are reporting." : "Receiver ready for a RoadLink."}</h1>
           </div>
           <div className="header-actions">
             <div className="sync-state"><span className={settings.demoMode || receiverHealthy ? "live-pip" : "offline-pip"} /><div><strong>{settings.demoMode ? "Demo live" : receiverHealthy ? "Receiver live" : "Receiver off"}</strong><small>{new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</small></div></div>
@@ -998,9 +1075,9 @@ export default function App() {
           <div className="stat-card"><span className="stat-icon blue"><Navigation size={18} /></span><div><small>On the move</small><strong>{movingCount}<span> vehicles</span></strong></div><em>{activeDevices.length ? Math.round((movingCount / activeDevices.length) * 100) : 0}% of fleet</em></div>
           <div className="stat-card"><span className="stat-icon amber"><AlertTriangle size={18} /></span><div><small>Needs attention</small><strong>{settings.demoMode ? 1 : activeDevices.length - onlineCount}<span> device</span></strong></div><em className={settings.demoMode ? "warning" : ""}>{settings.demoMode ? "Offline 52m" : receiverState?.lastError ? "Receiver warning" : "No alerts"}</em></div>
           <div className="stat-card"><span className="stat-icon violet"><Radio size={18} /></span><div><small>Received this run</small><strong>{settings.demoMode ? "18.4k" : receiverState?.packetCount ?? 0}</strong></div><em className="positive">{settings.demoMode ? "+12.8%" : receiverState?.lastPacketAt ? "Authenticated" : "Waiting"}</em></div>
-        </section>
+        </section></>}
 
-        <section className="fleet-workspace">
+        {(page === "overview" || page === "devices") && <section className="fleet-workspace">
           {selected ? <>
           <div className="device-panel panel">
             <div className="panel-heading">
@@ -1020,6 +1097,7 @@ export default function App() {
                       <span className="device-speed">{device.status === "moving" ? displaySpeed(device.speed) : "—"}</span>
                     </div>
                     <div className="device-card-bottom"><span>{device.vehicle}</span><span>{isFocused && settings.demoMode ? <><Zap size={12} /> 1s focus</> : <><Clock size={12} /> {secondsLabel(device.pollRate)}</>}</span></div>
+                    {device.status !== "offline" && device.gpsEnabled && !device.hasGpsFix && <div className="no-fix-label"><MapPin size={12} /> No GPS fix</div>}
                   </button>
                 );
               })}
@@ -1028,7 +1106,7 @@ export default function App() {
             {settings.demoMode && <button className="add-device-inline" onClick={() => setShowAdd(true)}><Plus size={15} /> Add a demo RoadLink</button>}
           </div>
 
-          <div className="map-panel panel">
+          {page === "devices" ? <DevicesGrid devices={activeDevices} selectedId={selected.id} onSelect={selectDevice} health={deviceHealth} /> : <div className="map-panel panel">
             <RoadLinkMap devices={activeDevices} selectedId={selected.id} mapStyle={settings.mapStyle} mapTilerKey={settings.mapTilerKey} onSelect={selectDevice} />
             <div className="map-topbar">
               <div className="map-title"><span className="live-pip" /><div><strong>Live fleet map</strong><small>{settings.demoMode ? "Guadalajara demo" : "Authenticated receiver"} · {onlineCount} active units</small></div></div>
@@ -1044,7 +1122,7 @@ export default function App() {
               <div className="focus-rate"><span>{settings.demoMode ? "Effective rate" : "Desired normal rate"}</span><strong>{focused && settings.demoMode ? "1 second" : secondsLabel(selected.pollRate)}</strong></div>
               <button onClick={() => focused ? setFocusedId("") : setFocusedId(selected.id)}>{focused ? "End focus" : "Focus live"}</button>
             </div>
-          </div>
+          </div>}
 
           <aside className="detail-panel panel">
             <div className="detail-head">
@@ -1053,6 +1131,7 @@ export default function App() {
             </div>
 
             <div className="live-strip"><span className="live-pip" /><strong>{focused ? settings.demoMode ? "Focused live stream" : "Focused dashboard view" : "Normal stream"}</strong><span>Updated {timeAgo(selected.updatedAt, now)}</span></div>
+            <div className={`detail-health health-${deviceHealth(selected).level}`}><span className="status-dot" /><div><strong>{deviceHealth(selected).level === "green" ? "Device healthy" : deviceHealth(selected).level === "yellow" ? "Needs attention" : "Device problem"}</strong>{deviceHealth(selected).details.length ? deviceHealth(selected).details.map((detail) => <small key={detail}>{detail}</small>) : <small>{deviceHealth(selected).message}</small>}</div></div>
 
             <div className="metrics-grid">
               <Metric icon={<Gauge size={16} />} label="Speed" value={displaySpeed(selected.speed)} detail={selected.status} />
@@ -1073,13 +1152,13 @@ export default function App() {
             <div className="secondary-metrics">
               <div><Fuel size={15} /><span>Fuel</span><strong>{selected.fuel}%</strong></div>
               <div><Signal size={15} /><span>LTE signal</span><strong>{selected.signal ? `${selected.signal}/5` : "None"}</strong></div>
-              <div><MapPin size={15} /><span>GPS</span><strong>{selected.status === "offline" ? "Last known" : "3 m fix"}</strong></div>
+              <div><MapPin size={15} /><span>GPS</span><strong>{selected.gpsEnabled === false ? "Disabled" : selected.hasGpsFix === false ? "No fix" : selected.status === "offline" ? "Last known" : "Fix"}</strong></div>
             </div>
 
-            <div className="reporting-control">
+            {settings.demoMode ? <div className="reporting-control">
               <div><span>Normal reporting rate</span><small>{settings.demoMode ? "Focus temporarily overrides this to 1 second." : "Saved locally; firmware command delivery comes later."}</small></div>
               <label><select value={selected.pollRate} onChange={(event) => updatePollRate(selected.id, Number(event.target.value))}>{pollOptions.map((option) => <option key={option} value={option}>{secondsLabel(option)}</option>)}</select><ChevronDown size={14} /></label>
-            </div>
+            </div> : <button className="secondary-button" onClick={() => setShowStreaming(true)}><Sliders size={16} /> Configure streaming</button>}
 
             <div className="device-meta">
               <div><span>IMEI</span><strong>{selected.imei}</strong></div>
@@ -1100,7 +1179,9 @@ export default function App() {
               </div>
             </div>
           )}
-        </section>
+        </section>}
+        {page === "trips" && <TripsPage devices={settings.demoMode ? devices : activeDevices} demoMode={settings.demoMode} />}
+        {page === "analytics" && <AnalyticsPage />}
       </main>
 
       {editId && (
@@ -1136,6 +1217,7 @@ export default function App() {
         </div>
       )}
 
+      {showStreaming && <StreamingPanel devices={receiverState?.streamingDevices ?? []} receiverRunning={receiverHealthy} onState={setReceiverState} onClose={() => setShowStreaming(false)} />}
       {showReceiver && (
         <div className="modal-backdrop" onMouseDown={() => setShowReceiver(false)}>
           <div className="modal receiver-modal" onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="receiver-title">
@@ -1156,13 +1238,14 @@ export default function App() {
               </div>
 
               <div className="receiver-section">
-                <div className="receiver-section-title"><div><span>Enter these values on your RoadLink</span><small>{receiverState.mapping ? `Public endpoint created with ${receiverState.mapping.method}` : "LAN endpoint; use public mapping for cellular access"}</small></div><ShieldCheck size={17} /></div>
+                <div className="receiver-section-title"><div><span>Enter these values on your RoadLink</span><small>{tunnelActive ? `Free Pinggy tunnel · about ${tunnelMinutesLeft} min left` : receiverState.mapping ? `Router endpoint created with ${receiverState.mapping.method}` : "LAN endpoint; choose router mapping or a free tunnel for cellular access"}</small></div><ShieldCheck size={17} /></div>
                 <div className="credential-grid">
-                  <div><span>Receiver IP</span><strong>{receiverState.mapping?.publicIp ?? receiverState.lanAddresses[0]?.address ?? "127.0.0.1"}</strong><button onClick={() => copyValue(receiverState.mapping?.publicIp ?? receiverState.lanAddresses[0]?.address ?? "127.0.0.1", "Receiver IP")}><Copy size={13} /></button></div>
-                  <div><span>TCP port</span><strong>{receiverState.mapping?.publicPort ?? receiverState.port}</strong><button onClick={() => copyValue(String(receiverState.mapping?.publicPort ?? receiverState.port), "TCP port")}><Copy size={13} /></button></div>
+                  <div><span>Receiver IP</span><strong>{receiverPublicIp ?? receiverState.lanAddresses[0]?.address ?? "127.0.0.1"}</strong><button onClick={() => copyValue(receiverPublicIp ?? receiverState.lanAddresses[0]?.address ?? "127.0.0.1", "Receiver IP")}><Copy size={13} /></button></div>
+                  <div><span>TCP port</span><strong>{receiverPublicPort ?? receiverState.port}</strong><button onClick={() => copyValue(String(receiverPublicPort ?? receiverState.port), "TCP port")}><Copy size={13} /></button></div>
                   <div className="key-credential"><span>Six-digit access key</span><strong>{receiverState.accessKey}</strong><button onClick={() => copyValue(receiverState.accessKey, "Access key")}><Copy size={13} /></button></div>
                 </div>
                 <div className="endpoint-line"><Globe2 size={14} /><span>{receiverState.publicEndpoint ?? receiverState.localEndpoint}</span><button onClick={() => copyValue(receiverState.publicEndpoint ?? receiverState.localEndpoint, "Endpoint")}><Copy size={13} /> Copy</button></div>
+                {tunnelActive && <div className="endpoint-line tunnel-line"><Radio size={14} /><span>Pinggy host: {receiverState.tunnel.publicHost}:{receiverState.tunnel.publicPort}</span></div>}
               </div>
 
               <div className="receiver-settings-grid">
@@ -1177,9 +1260,18 @@ export default function App() {
                     if (receiver) void runReceiverAction(() => receiver.update({ autoPortMap: !receiverState.autoPortMap, enabled: true }), receiverState.autoPortMap ? "Public port mapping disabled" : "Trying NAT-PMP and UPnP");
                   }} aria-label="Toggle automatic router port mapping"><span /></button>
                 </div>
+                <div className="receiver-setting-card receiver-setting-wide">
+                  <div className="receiver-setting-copy"><strong>Free Pinggy test tunnel</strong><span>{tunnelActive ? `Active · expires in about ${tunnelMinutesLeft} min; restart for a new address.` : tunnelStarting ? "Opening an outbound SSH tunnel…" : "Works behind CGNAT. Free address changes and normally expires after 60 minutes."}</span></div>
+                  <button disabled={receiverBusy || tunnelStarting} className={`toggle ${tunnelActive || tunnelStarting ? "is-on" : ""}`} onClick={() => {
+                    const receiver = window.roadlinkDesktop?.receiver;
+                    const stopTunnel = tunnelActive || tunnelStarting;
+                    if (receiver) void runReceiverAction(() => receiver.update({ freeTunnel: !stopTunnel, enabled: true }), stopTunnel ? "Free tunnel stopped" : "Starting free Pinggy tunnel");
+                  }} aria-label="Toggle free Pinggy tunnel"><span /></button>
+                </div>
               </div>
 
               {receiverState.lastError && <div className="receiver-error"><AlertTriangle size={16} /><div><strong>Receiver notice</strong><span>{receiverState.lastError}</span></div></div>}
+              {receiverState.tunnel.lastError && <div className="receiver-error"><AlertTriangle size={16} /><div><strong>Free tunnel notice</strong><span>{receiverState.tunnel.lastError}</span></div></div>}
 
               <div className="receiver-actions-row">
                 <button className="secondary-button" disabled={receiverBusy} onClick={addFirewallRule}><ShieldCheck size={15} /> Add Windows Firewall rule</button>
@@ -1208,6 +1300,7 @@ export default function App() {
             <div className="setting-row key-setting"><div><strong>MapTiler API key</strong><span>Required only for Satellite. Stored locally on this PC.</span></div><label className="settings-key-field"><input type="password" value={settings.mapTilerKey} onChange={(event) => { const mapTilerKey = event.target.value; setSettings((current) => ({ ...current, mapTilerKey, mapStyle: !mapTilerKey.trim() && current.mapStyle === "satellite" ? "dark" : current.mapStyle })); }} placeholder="Paste your MapTiler key" /><span>{settings.mapTilerKey.trim() ? <><Check size={12} /> Key saved</> : "No key"}</span></label></div>
             <div className="setting-row"><div><strong>Speed units</strong><span>Telemetry remains stored in metric units.</span></div><div className="segmented"><button className={settings.units === "kmh" ? "is-active" : ""} onClick={() => setSettings((current) => ({ ...current, units: "kmh" }))}>km/h</button><button className={settings.units === "mph" ? "is-active" : ""} onClick={() => setSettings((current) => ({ ...current, units: "mph" }))}>mph</button></div></div>
             <div className="setting-row"><div><strong>Compact device list</strong><span>Fit more RoadLinks on smaller displays.</span></div><button className={`toggle ${settings.compact ? "is-on" : ""}`} onClick={() => setSettings((current) => ({ ...current, compact: !current.compact }))}><span /></button></div>
+            <div className="setting-row about-setting"><div><strong><Info size={14} /> About RoadLink Fleet</strong><span>This is the version installed on this computer.</span></div><div className="about-version"><span>APP VERSION</span><strong>v{window.roadlinkDesktop?.version ?? "development"}</strong></div></div>
             <div className="settings-footer"><button className="text-button" onClick={resetDemo}>Restore demo fleet</button><button className="primary-button" onClick={() => setShowSettings(false)}>Done</button></div>
           </div>
         </div>

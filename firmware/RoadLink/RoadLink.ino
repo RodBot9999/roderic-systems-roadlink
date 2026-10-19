@@ -13,6 +13,7 @@
 #include "StreamingController.h"
 #include "TftRenderer.h"
 #include "MenuSystem.h"
+#include "LocalFirmwareUpdateService.h"
 
 AppSettings settings;
 SettingsStore settingsStore;
@@ -46,6 +47,7 @@ MenuSystem menu(
     settingsStore,
     diagnostics,
     streaming);
+LocalFirmwareUpdateService localUpdate;
 
 void waitForBootPress(uint32_t timeoutMs = 0) {
   const uint32_t startedMs = millis();
@@ -205,6 +207,7 @@ void setup() {
   // If warnings/errors exist, OVERRIDE AND CONTINUE is selected by default.
   menu.begin();
   tft.update(true);
+  localUpdate.begin();
 }
 
 void loop() {
@@ -216,6 +219,7 @@ void loop() {
   obd.update();
   sim.update();
   streaming.update();
+  localUpdate.update();
 
   // Physical controls update the same configuration model used by future
   // semantic computer commands received through the LTE heartbeat.

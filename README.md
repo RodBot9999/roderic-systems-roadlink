@@ -4,16 +4,16 @@
 
 **RoadLink is a custom ESP32 vehicle diagnostics and telemetry platform built
 around a purpose-designed carrier PCB.** It combines CAN and OBD-II tools, GPS
-tracking, a rotary-controlled TFT interface, a local phone dashboard, and
+tracking, a rotary-controlled TFT interface, local Wi-Fi firmware updates, and
 optional A7670SA cellular telemetry in one standalone unit.
 
 The system starts in CAN listen-only mode and keeps its hardware services
-separate from the visible interface. A single UI model drives the physical
-display, browser dashboard, and optional serial mirror, so every control surface
-shows the same state.
+separate from the visible interface. The TFT shows the local menu; the Windows
+dashboard receives cellular telemetry and configuration check-ins rather than
+duplicating the screen.
 
-> **Development status:** `main` contains the baseline release. Active firmware
-> and dashboard work is based on the `development` branch.
+> **Development status:** `main` contains the current firmware and desktop app
+> release. Documentation and enclosure work remain on separate branches.
 
 ## PCB design and construction
 
@@ -74,7 +74,7 @@ flowchart LR
     GPS["GPS receiver + PPS"] --> ESP
     Encoder["Rotary encoder"] --> ESP
     ESP --> TFT["ILI9341 TFT"]
-    ESP --> Web["Local Wi-Fi dashboard"]
+    ESP --> OTA["Local Wi-Fi firmware updater"]
     ESP --> SIM["A7670SA telemetry"]
     SIM --> Receiver["RoadLink desktop receiver"]
 ```
@@ -87,7 +87,7 @@ flowchart LR
 - GPS position, motion, time, PPS, and NMEA statistics
 - 320x240 ILI9341 TFT interface
 - Single rotary encoder navigation with explicit Back actions and manual detail pages
-- Local ESP32 Wi-Fi access point and live WebSocket dashboard
+- Local ESP32 Wi-Fi access point for authenticated firmware uploads
 - A7670SA HTTP telemetry with digit-by-digit receiver editors and persistent failure details
 - Independent GPS and OBD-II telemetry selection
 - Windows telemetry monitor with JSONL logging and temporary port mapping
@@ -136,7 +136,9 @@ a startup warning but does not prevent the main menu from opening.
 
 ```text
 assets/                         Splash artwork and project media
-dashboard/                      RoadLink Fleet Windows desktop dashboard
+ROADLINK APP/
+  RoadLink-Fleet-Setup-0.4.4-x64.exe  Windows installer
+  source code/                  RoadLink Fleet Electron/React source
 docs/
   ARCHITECTURE.md               Hardware and software architecture
   CHANGELOG.txt                 Implementation history
@@ -153,8 +155,7 @@ tools/                         Current-build branch
 ## Quick start
 
 1. Install Arduino IDE 2.x and the Espressif ESP32 board package.
-2. Install `mcp_can`, `WebSockets`, `Adafruit GFX Library`, and
-   `Adafruit ILI9341`.
+2. Install `mcp_can`, `Adafruit GFX Library`, and `Adafruit ILI9341`.
 3. Open `firmware/RoadLink/RoadLink.ino`.
 4. Confirm the GPIO assignments in `AppConfig.h`.
 5. Select the correct ESP32 board and serial port.
@@ -173,6 +174,8 @@ For the complete bring-up procedure, see
 [Getting Started](docs/GETTING_STARTED.md). Cellular configuration and power
 requirements are documented in
 [A7670SA Telemetry](docs/A7670SA_TELEMETRY.md).
+Later firmware uploads over local Wi-Fi are covered in the
+[Local Firmware Update guide](firmware/RoadLink/LOCAL_FIRMWARE_UPDATE.md).
 
 ## Safety
 
