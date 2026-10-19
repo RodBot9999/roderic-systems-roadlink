@@ -156,7 +156,7 @@ El siguiente procedimiento puede adaptarse para ambos módulos:
 
 ## 9. Imágenes y evidencias que deben agregarse
 
-Cuando las fotografías estén disponibles, deberán agregarse a `documentation/spanish/assets/images/` y colocarse cerca de la descripción de la prueba correspondiente. Algunas imágenes útiles son:
+Cuando las fotografías estén disponibles, deberán agregarse a `documentation/spanish/recursos/imagenes/` y colocarse cerca de la descripción de la prueba correspondiente. Algunas imágenes útiles son:
 
 - ESP32 únicamente con el SIM800L, mostrando el cableado de prueba;
 - el SMS recibido que contiene los datos simulados;
@@ -180,4 +180,3 @@ Cada fotografía debe incluir una descripción que indique el módulo, la etapa 
 - voltaje de alimentación medido y comportamiento durante la transmisión;
 - razón real del cambio de módulos;
 - fotografías, firmware y registros seriales.
-

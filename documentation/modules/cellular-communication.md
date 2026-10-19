@@ -156,7 +156,7 @@ The following procedure can be adapted for both modules:
 
 ## 9. Images and evidence to add
 
-When the photographs are available, add them to `documentation/assets/images/` and place them near the relevant test description. Useful images include:
+When the photographs are available, add them to `documentation/images/` and place them near the relevant test description. Useful images include:
 
 - ESP32 with SIM800L only, showing the test wiring;
 - the received SMS containing simulated data;

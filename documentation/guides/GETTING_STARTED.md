@@ -84,7 +84,7 @@ After the OTA-capable firmware is first uploaded over USB, it creates a
 password is printed at 115200 baud on Serial Monitor and stored separately in
 NVS. The authenticated upload page is `http://192.168.4.1/update`; there is
 no phone dashboard or WebSocket service at the root address. See the
-[Local Firmware Update guide](../firmware/RoadLink/LOCAL_FIRMWARE_UPDATE.md).
+[Local Firmware Update guide](../../firmware/RoadLink/LOCAL_FIRMWARE_UPDATE.md).
 
 ## First hardware checks
 
@@ -119,7 +119,7 @@ specified for the exact A7670SA breakout board; do not power it from an ESP32
 GPIO or assume the ESP32 3.3 V regulator is sufficient.
 
 Before running the full firmware, use the standalone
-[A7670SA baud scanner and AT terminal](../tools/A7670SA_Baud_Terminal/README.md)
+[A7670SA baud scanner and AT terminal](../../tools/A7670SA_Baud_Terminal/README.md)
 to verify the modem's UART rate and `AT` response.
 A modem should answer plain `AT` even without a SIM card. Confirm that ESP32
 GPIO16 transmits to A7670SA RX and that A7670SA TX drives ESP32 GPIO17. Never

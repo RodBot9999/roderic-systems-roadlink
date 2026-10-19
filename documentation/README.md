@@ -2,7 +2,7 @@
 
 > **Languages:** Development will be written first in [Spanish](spanish/README.md), since it is the language used for the class. This English version will be synchronized afterward.
 
-This directory contains the technical documentation for RoadLink. The documentation is divided by subsystem so that each part can be studied, tested, and evaluated independently. A complete system document will later bring these parts together and explain RoadLink as a whole.
+This directory contains the technical documentation for RoadLink. The documentation is divided by subsystem so that each part can be studied, tested, and evaluated independently. A complete system document will later bring these parts together and explain RoadLink as a whole. Current setup and protocol material lives in [guides](guides/GETTING_STARTED.md); the acrylic enclosure drawings and photos live in [Case](../Case/acrylic-version/).
 
 ## Purpose
 
@@ -19,6 +19,9 @@ The documents in this directory are intended to record:
 
 ## Documentation map
 
+For a first upload, start with [Getting Started](guides/GETTING_STARTED.md).
+The [architecture guide](guides/ARCHITECTURE.md), [A7670SA telemetry guide](guides/A7670SA_TELEMETRY.md), and [change history](guides/CHANGELOG.txt) cover the current software and protocol. The Spanish [class reports](spanish/README.md) include their LaTeX sources, PDFs, and supporting photographs. The English module notes below remain drafts, not verified measurements.
+
 | Subsystem | Document | Status |
 | --- | --- | --- |
 | ESP32 controller | [ESP32 controller](modules/esp32-controller.md) | Initial draft |
@@ -31,10 +34,10 @@ The documents in this directory are intended to record:
 
 ## Media organization
 
-Photographs, diagrams, screenshots, and test evidence belong in `assets/images/`. File names should describe the subject and development stage, for example:
+Shared project artwork belongs in `images/`; Spanish report evidence is kept in `spanish/recursos/imagenes/` so the LaTeX sources retain their relative image paths. File names should describe the subject and development stage, for example:
 
 ```text
-assets/images/
+images/
 ├── esp32-sim800l-test-setup.jpg
 ├── sim800l-sms-test-result.jpg
 ├── sim800l-tcp-test-setup.jpg
