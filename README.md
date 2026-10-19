@@ -1,6 +1,6 @@
 # Roderic Systems RoadLink
 
-![Roderic Systems startup screen](assets/roderic-systems-splash-320x240.png)
+![Roderic Systems startup screen](documentation/images/roderic-systems-splash-320x240.png)
 
 **RoadLink is a custom ESP32 vehicle diagnostics and telemetry platform built
 around a purpose-designed carrier PCB.** It combines CAN and OBD-II tools, GPS
@@ -107,7 +107,7 @@ flowchart LR
 
 UART directions are named from the ESP32 perspective: GPIO16 transmits to the
 A7670SA RX input, while GPIO17 receives from the A7670SA TX output. See
-[Getting Started](docs/GETTING_STARTED.md) before wiring hardware.
+[Getting Started](documentation/guides/GETTING_STARTED.md) before wiring hardware.
 Reset, sleep/DTR, and PWRKEY are not connected to ESP32 GPIOs in this build.
 
 ## Software architecture
@@ -135,28 +135,30 @@ a startup warning but does not prevent the main menu from opening.
 ## Repository layout
 
 ```text
-assets/                         Splash artwork and project media
 ROADLINK APP/
   RoadLink-Fleet-Setup-0.4.4-x64.exe  Windows installer
   source code/                  RoadLink Fleet Electron/React source
-docs/
-  ARCHITECTURE.md               Hardware and software architecture
-  CHANGELOG.txt                 Implementation history
-  GETTING_STARTED.md            Wiring, dependencies, and first upload
-  A7670SA_TELEMETRY.md          Cellular sender and receiver setup
 firmware/
-  RoadLink/                     Arduino sketch and firmware modules
-tools/                         Current-build branch
+  ROADLINK-UI-SPARKY/           Current firmware source and build artifact
+  latest firmware/             Current Wi-Fi OTA image
+  firmware releases/           Versioned firmware archive
+tools/
   roadlink_monitor/             Windows GPS/OBD telemetry receiver
   A7670SA_Baud_Terminal/        Standalone modem baud scanner and AT terminal
   virtual_roadlink/             Standalone Python RoadLink telemetry simulator
+documentation/
+  guides/                      Setup, architecture, telemetry, changelog
+  spanish/                     Class reports, module notes, and evidence
+  images/                      Shared project artwork
+Case/
+  acrylic-version/             Cut diagram and assembled-case photos
 ```
 
 ## Quick start
 
 1. Install Arduino IDE 2.x and the Espressif ESP32 board package.
 2. Install `mcp_can`, `Adafruit GFX Library`, and `Adafruit ILI9341`.
-3. Open `firmware/RoadLink/RoadLink.ino`.
+3. Open `firmware/ROADLINK-UI-SPARKY/ROADLINK-UI-SPARKY.ino` for the current UI firmware.
 4. Confirm the GPIO assignments in `AppConfig.h`.
 5. Select the correct ESP32 board and serial port.
 6. Compile and upload, then open Serial Monitor at 115200 baud.
@@ -171,9 +173,9 @@ Main-menu `Reboot` repeats ESP32 startup and requests a UART modem reset,
 without cutting power to the externally powered modules.
 
 For the complete bring-up procedure, see
-[Getting Started](docs/GETTING_STARTED.md). Cellular configuration and power
+[Getting Started](documentation/guides/GETTING_STARTED.md). Cellular configuration and power
 requirements are documented in
-[A7670SA Telemetry](docs/A7670SA_TELEMETRY.md).
+[A7670SA Telemetry](documentation/guides/A7670SA_TELEMETRY.md).
 Later firmware uploads over local Wi-Fi are covered in the
 [Local Firmware Update guide](firmware/RoadLink/LOCAL_FIRMWARE_UPDATE.md).
 

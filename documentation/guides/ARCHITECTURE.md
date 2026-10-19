@@ -212,7 +212,7 @@ device-specific `RoadLink-OTA-XXXXXX` SSID and a persistent, unique password.
 The authenticated upload page at `http://192.168.4.1/update` writes to the
 inactive OTA application partition. This service does not host a phone UI or
 WebSocket dashboard, and it does not use the A7670SA or cellular data. See the
-[Local Firmware Update guide](../firmware/RoadLink/LOCAL_FIRMWARE_UPDATE.md).
+[Local Firmware Update guide](../../firmware/RoadLink/LOCAL_FIRMWARE_UPDATE.md).
 
 ## CAN and OBD-II architecture
 

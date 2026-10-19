@@ -4,7 +4,7 @@ These tests compile the actual `A7670Service.cpp`, state definitions, parser,
 configuration, and GPS/OBD snapshot structs with host-only Arduino/UART/time
 substitutes. No modem, upload, or real HTTP connection is used. They are not a
 replacement for the hardware checklist in
-[A7670SA Telemetry](../../docs/A7670SA_TELEMETRY.md).
+[A7670SA Telemetry](../../documentation/guides/A7670SA_TELEMETRY.md).
 
 On Windows with a C++17 GCC/Clang-compatible compiler:
 
